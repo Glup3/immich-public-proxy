@@ -19,7 +19,6 @@ import (
 	"github.com/glup3/immich-public-proxy/internal/config"
 	"github.com/glup3/immich-public-proxy/internal/immich"
 	"github.com/glup3/immich-public-proxy/internal/render"
-	"github.com/glup3/immich-public-proxy/internal/sanitize"
 	"github.com/glup3/immich-public-proxy/internal/session"
 )
 
@@ -326,7 +325,7 @@ func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request, asset immich
 
 func (s *Server) downloadAll(ctx context.Context, w http.ResponseWriter, share *immich.SharedLink) error {
 	w.Header().Set("Content-Type", "application/zip")
-	filename := sanitize.Filename(render.Title(share))
+	filename := render.SafeTitleFilename(render.Title(share))
 	if filename == "" {
 		filename = "photos"
 	}

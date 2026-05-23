@@ -7,11 +7,19 @@ import (
 	"html/template"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/glup3/immich-public-proxy/internal/config"
 	"github.com/glup3/immich-public-proxy/internal/immich"
-	"github.com/glup3/immich-public-proxy/internal/sanitize"
+)
+
+var (
+	illegalFilenameChars = regexp.MustCompile(`[/?<>\\:*|"]`)
+	controlFilenameChars = regexp.MustCompile(`[\x00-\x1f\x80-\x9f]`)
+	dotsOnlyFilename     = regexp.MustCompile(`^\.+$`)
+	windowsReservedName  = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$`)
+	windowsTrailingChars = regexp.MustCompile(`[. ]+$`)
 )
 
 type Renderer struct {
@@ -214,10 +222,14 @@ func Filename(cfg config.Config, asset immich.Asset) string {
 		return "img_" + prefix + extension
 	default:
 		if asset.OriginalFileName != "" {
-			return sanitize.Filename(asset.OriginalFileName)
+			return sanitizeFilename(asset.OriginalFileName)
 		}
 		return asset.ID + extension
 	}
+}
+
+func SafeTitleFilename(title string) string {
+	return sanitizeFilename(title)
 }
 
 func CanDownload(cfg config.Config, share *immich.SharedLink) bool {
@@ -273,4 +285,16 @@ func photoURL(key, id string, size immich.ImageSize) string {
 
 func videoURL(key, id string) string {
 	return "/share/video/" + key + "/" + id
+}
+
+func sanitizeFilename(input string) string {
+	output := illegalFilenameChars.ReplaceAllString(input, "")
+	output = controlFilenameChars.ReplaceAllString(output, "")
+	output = dotsOnlyFilename.ReplaceAllString(output, "")
+	output = windowsReservedName.ReplaceAllString(output, "")
+	output = windowsTrailingChars.ReplaceAllString(output, "")
+	if len(output) > 254 {
+		output = output[:254]
+	}
+	return strings.TrimSpace(output)
 }
