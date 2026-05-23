@@ -9,8 +9,7 @@ import (
 )
 
 func TestBuildURLOmitsEmptyAndEncodes(t *testing.T) {
-	client := NewClient("http://example.test", nil, nil, nil)
-	got := client.BuildURL("http://example.test/path", map[string]string{
+	got := buildURL("http://example.test/path", map[string]string{
 		"key":      "abc 123",
 		"password": "",
 	})
@@ -26,8 +25,8 @@ func TestValidationHelpers(t *testing.T) {
 	if !IsID("123e4567-e89b-12d3-a456-426614174000") || IsID("not-an-id") {
 		t.Fatal("id validation mismatch")
 	}
-	if !IsImageSize(string(ImageSizeOriginal)) || IsImageSize("large") {
-		t.Fatal("image size validation mismatch")
+	if normalizeImageSize(ImageSizeOriginal) != ImageSizeOriginal || normalizeImageSize("large") != ImageSizePreview {
+		t.Fatal("image size normalization mismatch")
 	}
 }
 

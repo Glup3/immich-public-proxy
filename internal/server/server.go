@@ -149,7 +149,7 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 		mode = shareModeDownload
 	}
 
-	keyType := immich.KeyTypeFromShare(shareType)
+	keyType := keyTypeFromShareRoute(shareType)
 	if keyType == immich.KeyTypeSlug && !s.config.IPP.AllowSlugLinks {
 		s.respondInvalid(w, http.StatusNotFound, "slug links are disabled")
 		return
@@ -262,7 +262,7 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 		s.respondInvalid(w, http.StatusNotFound, "invalid key or ID for "+r.URL.Path)
 		return
 	}
-	if size != "" && !immich.IsImageSize(size) {
+	if size != "" && !isImageSize(size) {
 		s.respondInvalid(w, http.StatusNotFound, "invalid size parameter "+r.URL.Path)
 		return
 	}
@@ -297,7 +297,7 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request, asset immich.Asset, size immich.ImageSize) {
-	resp, err := s.client.StreamAsset(r.Context(), asset, size, r.Header.Get("Range"), s.config.IPP.DownloadOriginalPhoto)
+	resp, err := s.client.FetchAssetResponse(r.Context(), asset, size, r.Header.Get("Range"), s.config.IPP.DownloadOriginalPhoto)
 	if err != nil {
 		s.logger.Error("proxy asset", "asset_id", asset.ID, "error", err)
 		s.respondInvalid(w, http.StatusNotFound, "failed response from immich for asset "+asset.ID)
@@ -440,6 +440,22 @@ func findAsset(assets []immich.Asset, id string) (immich.Asset, bool) {
 		}
 	}
 	return immich.Asset{}, false
+}
+
+func keyTypeFromShareRoute(shareType string) immich.KeyType {
+	if shareType == "s" {
+		return immich.KeyTypeSlug
+	}
+	return immich.KeyTypeKey
+}
+
+func isImageSize(size string) bool {
+	switch immich.ImageSize(size) {
+	case immich.ImageSizeThumbnail, immich.ImageSizePreview, immich.ImageSizeOriginal:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) respondInvalid(w http.ResponseWriter, defaultStatus int, message string) {
