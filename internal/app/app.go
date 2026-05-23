@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/alangrainger/immich-public-proxy/internal/config"
+	"github.com/glup3/immich-public-proxy/internal/config"
 )
 
 type Runtime struct {

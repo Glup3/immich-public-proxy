@@ -5,7 +5,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/alangrainger/immich-public-proxy/internal/config"
+	"github.com/glup3/immich-public-proxy/internal/config"
 )
 
 type Handler struct {

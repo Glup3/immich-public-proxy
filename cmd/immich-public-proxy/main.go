@@ -8,10 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/alangrainger/immich-public-proxy/internal/app"
-	"github.com/alangrainger/immich-public-proxy/internal/immich"
-	"github.com/alangrainger/immich-public-proxy/internal/server"
-	"github.com/alangrainger/immich-public-proxy/internal/session"
+	"github.com/glup3/immich-public-proxy/internal/app"
+	"github.com/glup3/immich-public-proxy/internal/immich"
+	"github.com/glup3/immich-public-proxy/internal/server"
+	"github.com/glup3/immich-public-proxy/internal/session"
 )
 
 func main() {

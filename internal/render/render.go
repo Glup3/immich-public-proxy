@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/alangrainger/immich-public-proxy/internal/config"
-	"github.com/alangrainger/immich-public-proxy/internal/sanitize"
-	"github.com/alangrainger/immich-public-proxy/internal/types"
+	"github.com/glup3/immich-public-proxy/internal/config"
+	"github.com/glup3/immich-public-proxy/internal/sanitize"
+	"github.com/glup3/immich-public-proxy/internal/types"
 )
 
 type Renderer struct {

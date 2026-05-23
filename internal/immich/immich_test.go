@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/alangrainger/immich-public-proxy/internal/types"
+	"github.com/glup3/immich-public-proxy/internal/types"
 )
 
 func TestBuildURLOmitsEmptyAndEncodes(t *testing.T) {

@@ -1,4 +1,4 @@
-module github.com/alangrainger/immich-public-proxy
+module github.com/glup3/immich-public-proxy
 
 go 1.26
 

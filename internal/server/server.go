@@ -15,13 +15,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/alangrainger/immich-public-proxy/internal/config"
-	"github.com/alangrainger/immich-public-proxy/internal/immich"
-	"github.com/alangrainger/immich-public-proxy/internal/invalid"
-	"github.com/alangrainger/immich-public-proxy/internal/render"
-	"github.com/alangrainger/immich-public-proxy/internal/sanitize"
-	"github.com/alangrainger/immich-public-proxy/internal/session"
-	"github.com/alangrainger/immich-public-proxy/internal/types"
+	"github.com/glup3/immich-public-proxy/internal/config"
+	"github.com/glup3/immich-public-proxy/internal/immich"
+	"github.com/glup3/immich-public-proxy/internal/invalid"
+	"github.com/glup3/immich-public-proxy/internal/render"
+	"github.com/glup3/immich-public-proxy/internal/sanitize"
+	"github.com/glup3/immich-public-proxy/internal/session"
+	"github.com/glup3/immich-public-proxy/internal/types"
 )
 
 type Options struct {

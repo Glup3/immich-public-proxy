@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/alangrainger/immich-public-proxy/internal/config"
+	"github.com/glup3/immich-public-proxy/internal/config"
 )
 
 func TestRespondDefaultStatus(t *testing.T) {
