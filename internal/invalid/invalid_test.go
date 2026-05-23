@@ -9,7 +9,7 @@ import (
 )
 
 func TestRespondDefaultStatus(t *testing.T) {
-	handler := New(config.Default())
+	handler := New(config.Default().IPP.CustomInvalidResponse, nil)
 	rec := httptest.NewRecorder()
 	handler.Respond(rec, http.StatusNotFound, "test")
 	if rec.Code != http.StatusNotFound {
@@ -18,9 +18,7 @@ func TestRespondDefaultStatus(t *testing.T) {
 }
 
 func TestRespondCustomStatus(t *testing.T) {
-	cfg := config.Default()
-	cfg.IPP.CustomInvalidResponse = 410
-	handler := New(cfg)
+	handler := New(config.InvalidResponseMode{StatusCode: http.StatusGone}, nil)
 	rec := httptest.NewRecorder()
 	handler.Respond(rec, http.StatusNotFound, "test")
 	if rec.Code != http.StatusGone {
@@ -29,9 +27,7 @@ func TestRespondCustomStatus(t *testing.T) {
 }
 
 func TestRespondRedirect(t *testing.T) {
-	cfg := config.Default()
-	cfg.IPP.CustomInvalidResponse = "https://example.com"
-	handler := New(cfg)
+	handler := New(config.InvalidResponseMode{RedirectURL: "https://example.com"}, nil)
 	rec := httptest.NewRecorder()
 	handler.Respond(rec, http.StatusNotFound, "test")
 	if rec.Code != http.StatusFound {

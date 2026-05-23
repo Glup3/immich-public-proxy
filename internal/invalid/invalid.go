@@ -1,73 +1,52 @@
 package invalid
 
 import (
-	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
-	"strings"
-	"time"
 
 	"github.com/alangrainger/immich-public-proxy/internal/config"
 )
 
 type Handler struct {
-	Config config.Config
+	mode   config.InvalidResponseMode
+	logger *slog.Logger
 }
 
-func New(cfg config.Config) Handler {
-	return Handler{Config: cfg}
-}
-
-func Log(message string) {
-	fmt.Println(time.Now().Format(time.RFC3339) + " " + message)
+func New(mode config.InvalidResponseMode, logger *slog.Logger) Handler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return Handler{mode: mode, logger: logger}
 }
 
 func (h Handler) Respond(w http.ResponseWriter, defaultResponse int, logMessage string) {
-	method := h.Config.IPP.CustomInvalidResponse
-	if method == nil {
-		h.drop(w, logMessage)
-		return
-	}
-	if b, ok := method.(bool); ok && !b {
-		method = defaultResponse
-	}
-	if logMessage != "" {
-		logMessage = " - " + logMessage
-	}
-
-	switch value := method.(type) {
-	case int:
-		Log(fmt.Sprintf("Return status %d%s", value, logMessage))
-		w.WriteHeader(value)
-	case float64:
-		status := int(value)
-		Log(fmt.Sprintf("Return status %d%s", status, logMessage))
-		w.WriteHeader(status)
-	case string:
-		if strings.HasPrefix(value, "http") {
-			w.Header().Set("Location", value)
-			w.WriteHeader(http.StatusFound)
-			return
-		}
-		Log("Return status 404" + logMessage)
-		w.WriteHeader(http.StatusNotFound)
+	switch {
+	case h.mode.RedirectURL != "":
+		h.logger.Info("redirect invalid request", "location", h.mode.RedirectURL, "message", logMessage)
+		w.Header().Set("Location", h.mode.RedirectURL)
+		w.WriteHeader(http.StatusFound)
+	case h.mode.Drop:
+		h.drop(w, defaultResponse, logMessage)
+	case h.mode.StatusCode > 0:
+		h.logger.Info("return invalid response", "status", h.mode.StatusCode, "message", logMessage)
+		w.WriteHeader(h.mode.StatusCode)
 	default:
-		Log("Return status 404" + logMessage)
-		w.WriteHeader(http.StatusNotFound)
+		h.logger.Info("return invalid response", "status", defaultResponse, "message", logMessage)
+		w.WriteHeader(defaultResponse)
 	}
 }
 
-func (h Handler) drop(w http.ResponseWriter, logMessage string) {
-	if logMessage != "" {
-		logMessage = " - " + logMessage
-	}
-	Log("Dropping connection" + logMessage)
+func (h Handler) drop(w http.ResponseWriter, fallbackStatus int, logMessage string) {
+	h.logger.Info("drop invalid request", "message", logMessage)
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
+		w.WriteHeader(fallbackStatus)
 		return
 	}
 	conn, _, err := hijacker.Hijack()
 	if err != nil {
+		w.WriteHeader(fallbackStatus)
 		return
 	}
 	if tcp, ok := conn.(*net.TCPConn); ok {

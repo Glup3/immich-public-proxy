@@ -1,6 +1,7 @@
 package immich
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +11,7 @@ import (
 )
 
 func TestBuildURLOmitsEmptyAndEncodes(t *testing.T) {
-	client := &Client{}
+	client := NewClient("http://example.test", nil, nil, nil)
 	got := client.BuildURL("http://example.test/path", map[string]string{
 		"key":      "abc 123",
 		"password": "",
@@ -27,12 +28,12 @@ func TestValidationHelpers(t *testing.T) {
 	if !IsID("123e4567-e89b-12d3-a456-426614174000") || IsID("not-an-id") {
 		t.Fatal("id validation mismatch")
 	}
-	if !IsImageSize(types.ImageSizeOriginal) || IsImageSize("large") {
+	if !IsImageSize(string(types.ImageSizeOriginal)) || IsImageSize("large") {
 		t.Fatal("image size validation mismatch")
 	}
 }
 
-func TestGetShareByKeyFiltersAndSortsAlbum(t *testing.T) {
+func TestFetchSharedLinkFiltersAndSortsAlbum(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -60,23 +61,26 @@ func TestGetShareByKeyFiltersAndSortsAlbum(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{BaseURL: server.URL, HTTPClient: server.Client()}
-	res := client.GetShareByKey("share-key", "pw", types.KeyTypeKey)
-	if !res.Valid || res.Link == nil {
-		t.Fatal("expected valid share")
+	client := NewClient(server.URL, server.Client(), nil, nil)
+	link, access, err := client.FetchSharedLink(context.Background(), "share-key", "pw", types.KeyTypeKey)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(res.Link.Assets) != 2 {
-		t.Fatalf("expected trashed asset filtered, got %d assets", len(res.Link.Assets))
+	if access != types.ShareAccessGranted {
+		t.Fatalf("expected granted access, got %v", access)
 	}
-	if res.Link.Assets[0].ID != "a" || res.Link.Assets[1].ID != "b" {
-		t.Fatalf("expected assets sorted asc, got %#v", res.Link.Assets)
+	if len(link.Assets) != 2 {
+		t.Fatalf("expected trashed asset filtered, got %d assets", len(link.Assets))
 	}
-	if res.Link.Assets[0].Key != "share-key" || res.Link.Assets[0].Password != "pw" {
+	if link.Assets[0].ID != "a" || link.Assets[1].ID != "b" {
+		t.Fatalf("expected assets sorted asc, got %#v", link.Assets)
+	}
+	if link.Assets[0].Key != "share-key" || link.Assets[0].Password != "pw" {
 		t.Fatal("expected key/password populated on assets")
 	}
 }
 
-func TestGetShareByKeyPasswordRequired(t *testing.T) {
+func TestFetchSharedLinkPasswordRequired(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -84,9 +88,12 @@ func TestGetShareByKeyPasswordRequired(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{BaseURL: server.URL, HTTPClient: server.Client()}
-	res := client.GetShareByKey("share-key", "", types.KeyTypeKey)
-	if !res.Valid || !res.PasswordRequired {
-		t.Fatalf("expected password required, got %#v", res)
+	client := NewClient(server.URL, server.Client(), nil, nil)
+	_, access, err := client.FetchSharedLink(context.Background(), "share-key", "", types.KeyTypeKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if access != types.ShareAccessPasswordRequired {
+		t.Fatalf("expected password required, got %v", access)
 	}
 }

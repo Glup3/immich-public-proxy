@@ -1,17 +1,14 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
-	t.Setenv("CONFIG", "")
-	t.Setenv("IPP_CONFIG", "")
-	t.Chdir(t.TempDir())
-
-	cfg, err := Load()
+	cfg, err := Load(LoadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,10 +24,9 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 }
 
 func TestLoadInlineConfigMergesDefaults(t *testing.T) {
-	t.Setenv("CONFIG", `{"ipp":{"showHomePage":false},"lightGallery":{"download":false}}`)
-	t.Setenv("IPP_CONFIG", "")
-
-	cfg, err := Load()
+	cfg, err := Load(LoadOptions{
+		InlineJSON: `{"ipp":{"showHomePage":false},"lightGallery":{"download":false}}`,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +36,11 @@ func TestLoadInlineConfigMergesDefaults(t *testing.T) {
 	if !cfg.IPP.DownloadOriginalPhoto {
 		t.Fatal("expected missing bool default to remain true")
 	}
-	if cfg.LightGallery["download"] != false {
+	var lightGallery map[string]any
+	if err := json.Unmarshal(cfg.LightGallery, &lightGallery); err != nil {
+		t.Fatal(err)
+	}
+	if lightGallery["download"] != false {
 		t.Fatal("expected inline lightGallery override")
 	}
 }
@@ -50,14 +50,12 @@ func TestLoadIPPConfigFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"ipp":{"allowDownloadAll":2}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CONFIG", "")
-	t.Setenv("IPP_CONFIG", path)
 
-	cfg, err := Load()
+	cfg, err := Load(LoadOptions{FilePaths: []string{path}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.IPP.AllowDownloadAll != 2 {
+	if cfg.IPP.AllowDownloadAll != DownloadAllAlways {
 		t.Fatalf("expected allowDownloadAll=2, got %d", cfg.IPP.AllowDownloadAll)
 	}
 	if !cfg.IPP.AllowSlugLinks {
@@ -66,14 +64,25 @@ func TestLoadIPPConfigFile(t *testing.T) {
 }
 
 func TestLoadAllowsEmptyResponseHeaders(t *testing.T) {
-	t.Setenv("CONFIG", `{"ipp":{"responseHeaders":{}}}`)
-	t.Setenv("IPP_CONFIG", "")
-
-	cfg, err := Load()
+	cfg, err := Load(LoadOptions{
+		InlineJSON: `{"ipp":{"responseHeaders":{}}}`,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(cfg.IPP.ResponseHeaders) != 0 {
 		t.Fatalf("expected empty response headers, got %#v", cfg.IPP.ResponseHeaders)
+	}
+}
+
+func TestLoadLegacyInvalidResponseConfig(t *testing.T) {
+	cfg, err := Load(LoadOptions{
+		InlineJSON: `{"ipp":{"customInvalidResponse":"https://example.com"}}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.IPP.CustomInvalidResponse.RedirectURL != "https://example.com" {
+		t.Fatalf("unexpected redirect url: %#v", cfg.IPP.CustomInvalidResponse)
 	}
 }

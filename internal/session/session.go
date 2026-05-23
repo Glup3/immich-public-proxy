@@ -11,6 +11,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -18,10 +20,20 @@ import (
 
 const CookieName = "session"
 
+type CookieOptions struct {
+	Path     string
+	HTTPOnly bool
+	SameSite http.SameSite
+	Secure   bool
+	TTL      time.Duration
+}
+
 type Manager struct {
 	encryptionKey []byte
 	signingKey    []byte
 	now           func() time.Time
+	options       CookieOptions
+	logger        *slog.Logger
 }
 
 type encryptedPayload struct {
@@ -36,38 +48,64 @@ type passwordPayload struct {
 
 type Store map[string]encryptedPayload
 
-func New() (*Manager, error) {
-	encryptionKey := make([]byte, 32)
-	signingKey := make([]byte, 32)
-	if _, err := rand.Read(encryptionKey); err != nil {
-		return nil, err
+func DefaultCookieOptions() CookieOptions {
+	return CookieOptions{
+		Path:     "/",
+		HTTPOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		TTL:      time.Hour,
 	}
-	if _, err := rand.Read(signingKey); err != nil {
-		return nil, err
+}
+
+func NewManager(secret []byte, now func() time.Time, options CookieOptions, logger *slog.Logger) (*Manager, error) {
+	if len(secret) == 0 {
+		return nil, errors.New("session secret is required")
 	}
+	if now == nil {
+		now = time.Now
+	}
+	if options.Path == "" {
+		options = mergeCookieOptions(options, DefaultCookieOptions())
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	return &Manager{
-		encryptionKey: encryptionKey,
-		signingKey:    signingKey,
-		now:           time.Now,
+		encryptionKey: deriveKey(secret, "encryption"),
+		signingKey:    deriveKey(secret, "signing"),
+		now:           now,
+		options:       options,
+		logger:        logger,
 	}, nil
 }
 
-func NewForTest(encryptionKey, signingKey []byte, now func() time.Time) *Manager {
-	return &Manager{encryptionKey: encryptionKey, signingKey: signingKey, now: now}
+func NewForTest(secret []byte, now func() time.Time, options CookieOptions, logger *slog.Logger) *Manager {
+	manager, err := NewManager(secret, now, options, logger)
+	if err != nil {
+		panic(err)
+	}
+	return manager
 }
 
 func (m *Manager) Password(r *http.Request, shareKey string) string {
-	store := m.read(r)
+	store, err := m.read(r)
+	if err != nil {
+		m.logger.Debug("read session cookie", "error", err)
+		return ""
+	}
 	payload, ok := store[shareKey]
 	if !ok {
 		return ""
 	}
 	decrypted, err := m.decrypt(payload)
 	if err != nil {
+		m.logger.Debug("decrypt session entry", "share_key", shareKey, "error", err)
 		return ""
 	}
 	var decoded passwordPayload
 	if err := json.Unmarshal([]byte(decrypted), &decoded); err != nil {
+		m.logger.Debug("decode session entry", "share_key", shareKey, "error", err)
 		return ""
 	}
 	if decoded.Expires.After(m.now()) {
@@ -76,63 +114,77 @@ func (m *Manager) Password(r *http.Request, shareKey string) string {
 	return ""
 }
 
-func (m *Manager) SetPassword(w http.ResponseWriter, r *http.Request, shareKey, password string) {
-	store := m.read(r)
-	data, _ := json.Marshal(passwordPayload{
+func (m *Manager) SetPassword(w http.ResponseWriter, r *http.Request, shareKey, password string) error {
+	store, err := m.read(r)
+	if err != nil {
+		m.logger.Debug("read session cookie before set", "error", err)
+		store = Store{}
+	}
+	data, err := json.Marshal(passwordPayload{
 		Password: password,
-		Expires:  m.now().Add(time.Hour),
+		Expires:  m.now().Add(m.options.TTL),
 	})
+	if err != nil {
+		return fmt.Errorf("marshal session payload: %w", err)
+	}
 	encrypted, err := m.encrypt(string(data))
 	if err != nil {
-		return
+		return err
 	}
 	store[shareKey] = encrypted
-	m.write(w, store)
+	return m.write(w, store)
 }
 
-func (m *Manager) ClearKey(w http.ResponseWriter, r *http.Request, shareKey string) {
-	store := m.read(r)
+func (m *Manager) ClearKey(w http.ResponseWriter, r *http.Request, shareKey string) error {
+	store, err := m.read(r)
+	if err != nil {
+		m.logger.Debug("read session cookie before clear", "error", err)
+		store = Store{}
+	}
 	delete(store, shareKey)
-	m.write(w, store)
+	return m.write(w, store)
 }
 
-func (m *Manager) read(r *http.Request) Store {
+func (m *Manager) read(r *http.Request) (Store, error) {
 	cookie, err := r.Cookie(CookieName)
 	if err != nil || cookie.Value == "" {
-		return Store{}
+		return Store{}, nil
 	}
 	parts := strings.Split(cookie.Value, ".")
 	if len(parts) != 2 || !m.validSignature(parts[0], parts[1]) {
-		return Store{}
+		return Store{}, errors.New("invalid session signature")
 	}
 	data, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return Store{}
+		return Store{}, fmt.Errorf("decode session payload: %w", err)
 	}
 	var store Store
 	if err := json.Unmarshal(data, &store); err != nil {
-		return Store{}
+		return Store{}, fmt.Errorf("unmarshal session payload: %w", err)
 	}
 	if store == nil {
-		return Store{}
+		return Store{}, nil
 	}
-	return store
+	return store, nil
 }
 
-func (m *Manager) write(w http.ResponseWriter, store Store) {
+func (m *Manager) write(w http.ResponseWriter, store Store) error {
 	data, err := json.Marshal(store)
 	if err != nil {
-		return
+		return fmt.Errorf("marshal session store: %w", err)
 	}
 	encoded := base64.RawURLEncoding.EncodeToString(data)
 	value := encoded + "." + m.signature(encoded)
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieName,
 		Value:    value,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		Path:     m.options.Path,
+		HttpOnly: m.options.HTTPOnly,
+		SameSite: m.options.SameSite,
+		Secure:   m.options.Secure,
+		MaxAge:   int(m.options.TTL.Seconds()),
 	})
+	return nil
 }
 
 func (m *Manager) encrypt(text string) (encryptedPayload, error) {
@@ -142,7 +194,7 @@ func (m *Manager) encrypt(text string) (encryptedPayload, error) {
 	}
 	iv := make([]byte, aes.BlockSize)
 	if _, err := rand.Read(iv); err != nil {
-		return encryptedPayload{}, err
+		return encryptedPayload{}, fmt.Errorf("generate iv: %w", err)
 	}
 	plaintext := pkcs7Pad([]byte(text), aes.BlockSize)
 	ciphertext := make([]byte, len(plaintext))
@@ -180,13 +232,34 @@ func (m *Manager) decrypt(payload encryptedPayload) (string, error) {
 
 func (m *Manager) signature(value string) string {
 	mac := hmac.New(sha256.New, m.signingKey)
-	mac.Write([]byte(value))
+	_, _ = mac.Write([]byte(value))
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 func (m *Manager) validSignature(value, sig string) bool {
 	expected := m.signature(value)
 	return hmac.Equal([]byte(expected), []byte(sig))
+}
+
+func mergeCookieOptions(current, defaults CookieOptions) CookieOptions {
+	if current.Path == "" {
+		current.Path = defaults.Path
+	}
+	if !current.HTTPOnly {
+		current.HTTPOnly = defaults.HTTPOnly
+	}
+	if current.SameSite == 0 {
+		current.SameSite = defaults.SameSite
+	}
+	if current.TTL == 0 {
+		current.TTL = defaults.TTL
+	}
+	return current
+}
+
+func deriveKey(secret []byte, label string) []byte {
+	sum := sha256.Sum256(append(append([]byte{}, secret...), []byte(":"+label)...))
+	return sum[:]
 }
 
 func pkcs7Pad(data []byte, blockSize int) []byte {

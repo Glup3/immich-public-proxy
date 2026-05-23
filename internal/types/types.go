@@ -1,24 +1,49 @@
 package types
 
-import "net/http"
+import "time"
+
+type AssetType string
 
 const (
-	AssetTypeImage = "IMAGE"
-	AssetTypeVideo = "VIDEO"
+	AssetTypeImage AssetType = "IMAGE"
+	AssetTypeVideo AssetType = "VIDEO"
+)
 
-	KeyTypeKey  = "key"
-	KeyTypeSlug = "slug"
+type KeyType string
 
-	AlbumTypeAlbum      = "ALBUM"
-	AlbumTypeIndividual = "INDIVIDUAL"
+const (
+	KeyTypeKey  KeyType = "key"
+	KeyTypeSlug KeyType = "slug"
+)
 
-	ImageSizeThumbnail = "thumbnail"
-	ImageSizePreview   = "preview"
-	ImageSizeOriginal  = "original"
+type AlbumType string
 
-	DownloadAllDisabled  = 0
-	DownloadAllPerImmich = 1
-	DownloadAllAlways    = 2
+const (
+	AlbumTypeAlbum      AlbumType = "ALBUM"
+	AlbumTypeIndividual AlbumType = "INDIVIDUAL"
+)
+
+type ImageSize string
+
+const (
+	ImageSizeThumbnail ImageSize = "thumbnail"
+	ImageSizePreview   ImageSize = "preview"
+	ImageSizeOriginal  ImageSize = "original"
+)
+
+type ShareMode string
+
+const (
+	ShareModeView     ShareMode = ""
+	ShareModeDownload ShareMode = "download"
+)
+
+type ShareAccess int
+
+const (
+	ShareAccessGranted ShareAccess = iota
+	ShareAccessPasswordRequired
+	ShareAccessInvalid
 )
 
 type ExifInfo struct {
@@ -28,12 +53,12 @@ type ExifInfo struct {
 type Asset struct {
 	ID               string    `json:"id"`
 	Key              string    `json:"key,omitempty"`
-	KeyType          string    `json:"keyType,omitempty"`
+	KeyType          KeyType   `json:"keyType,omitempty"`
 	OriginalFileName string    `json:"originalFileName,omitempty"`
 	OriginalMimeType string    `json:"originalMimeType,omitempty"`
 	Password         string    `json:"password,omitempty"`
 	FileCreatedAt    string    `json:"fileCreatedAt,omitempty"`
-	Type             string    `json:"type"`
+	Type             AssetType `json:"type"`
 	IsTrashed        bool      `json:"isTrashed"`
 	Visibility       string    `json:"visibility,omitempty"`
 	ExifInfo         *ExifInfo `json:"exifInfo,omitempty"`
@@ -53,29 +78,27 @@ type SharedLinkAlbum struct {
 
 type SharedLink struct {
 	Key           string           `json:"key"`
-	KeyType       string           `json:"keyType,omitempty"`
-	Type          string           `json:"type"`
+	KeyType       KeyType          `json:"keyType,omitempty"`
+	Type          AlbumType        `json:"type"`
 	Description   string           `json:"description,omitempty"`
 	Assets        []Asset          `json:"assets"`
 	AllowDownload bool             `json:"allowDownload,omitempty"`
 	Password      string           `json:"password,omitempty"`
 	Album         *SharedLinkAlbum `json:"album,omitempty"`
-	ExpiresAt     *string          `json:"expiresAt"`
+	ExpiresAt     *time.Time       `json:"expiresAt"`
 }
 
-type SharedLinkResult struct {
-	Valid            bool
-	Key              string
-	PasswordRequired bool
-	Link             *SharedLink
-}
-
-type IncomingShareRequest struct {
-	Request  *http.Request
+type ShareRequest struct {
 	Key      string
-	KeyType  string
+	KeyType  KeyType
+	Mode     ShareMode
 	Password string
-	Mode     string
-	Size     string
-	Range    string
+}
+
+type AssetRequest struct {
+	ShareKey  string
+	AssetID   string
+	AssetType AssetType
+	Size      ImageSize
+	Range     string
 }

@@ -1,33 +1,51 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/alangrainger/immich-public-proxy/internal/config"
+	"github.com/alangrainger/immich-public-proxy/internal/app"
 	"github.com/alangrainger/immich-public-proxy/internal/immich"
 	"github.com/alangrainger/immich-public-proxy/internal/server"
 	"github.com/alangrainger/immich-public-proxy/internal/session"
 )
 
 func main() {
-	cfg, err := config.Load()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	runtime, err := app.LoadFromEnv()
 	if err != nil {
-		fmt.Println(err)
+		logger.Error("load runtime configuration", "error", err)
 		os.Exit(1)
 	}
-	sessions, err := session.New()
+
+	sessions, err := session.NewManager([]byte(runtime.SessionSecret), nil, session.DefaultCookieOptions(), logger)
 	if err != nil {
-		fmt.Println(err)
+		logger.Error("create session manager", "error", err)
 		os.Exit(1)
 	}
-	app, err := server.New(cfg, immich.New(), sessions)
+
+	handler, err := server.New(server.Options{
+		Config:        runtime.Config,
+		Client:        immich.NewClient(runtime.ImmichURL, &http.Client{}, nil, logger),
+		Sessions:      sessions,
+		Logger:        logger,
+		PublicBaseURL: runtime.PublicBaseURL,
+	})
 	if err != nil {
-		fmt.Println(err)
+		logger.Error("create server", "error", err)
 		os.Exit(1)
 	}
-	if err := server.Run(app); err != nil {
-		fmt.Println(err)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := server.Run(ctx, runtime.Address(), handler, logger); err != nil {
+		logger.Error("run server", "error", err)
 		os.Exit(1)
 	}
 }

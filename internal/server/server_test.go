@@ -3,6 +3,7 @@ package server
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -21,7 +22,7 @@ const testAssetID = "123e4567-e89b-12d3-a456-426614174000"
 
 func TestSlugDisabledReturnsNotFound(t *testing.T) {
 	app := newTestApp(t, config.Default(), nil)
-	app.Config.IPP.AllowSlugLinks = false
+	app.config.IPP.AllowSlugLinks = false
 
 	rec := httptest.NewRecorder()
 	app.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/s/custom-slug", nil))
@@ -51,7 +52,7 @@ func TestPasswordRequiredRendersPasswordPage(t *testing.T) {
 
 func TestGalleryRendersMetadataAndDownloadLink(t *testing.T) {
 	cfg := config.Default()
-	cfg.IPP.AllowDownloadAll = types.DownloadAllAlways
+	cfg.IPP.AllowDownloadAll = config.DownloadAllAlways
 	cfg.IPP.ShowGalleryTitle = true
 	upstream := sharedLinkServer(t, 2)
 	defer upstream.Close()
@@ -88,7 +89,7 @@ func TestAssetProxyForwardsWhitelistedHeaders(t *testing.T) {
 	}
 }
 
-func TestVideoProxyChunksRange(t *testing.T) {
+func TestVideoProxyPreservesUpstreamPartialResponse(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -102,14 +103,13 @@ func TestVideoProxyChunksRange(t *testing.T) {
 					OriginalFileName: "video.mp4",
 				}},
 			})
-		case strings.HasSuffix(r.URL.Path, "/api/assets/"+testAssetID):
-			_ = json.NewEncoder(w).Encode(types.Asset{ID: testAssetID})
 		case strings.HasSuffix(r.URL.Path, "/video/playback"):
 			if got := r.Header.Get("Range"); got != "bytes=10-2500009" {
 				t.Fatalf("expected chunked range, got %q", got)
 			}
 			w.Header().Set("Content-Type", "video/mp4")
 			w.Header().Set("Content-Range", "bytes 10-2500009/9000000")
+			w.WriteHeader(http.StatusPartialContent)
 			_, _ = w.Write([]byte("video-bytes"))
 		default:
 			http.NotFound(w, r)
@@ -132,7 +132,7 @@ func TestVideoProxyChunksRange(t *testing.T) {
 
 func TestDownloadAllReturnsZip(t *testing.T) {
 	cfg := config.Default()
-	cfg.IPP.AllowDownloadAll = types.DownloadAllAlways
+	cfg.IPP.AllowDownloadAll = config.DownloadAllAlways
 	upstream := sharedLinkServer(t, 1)
 	defer upstream.Close()
 
@@ -157,7 +157,17 @@ func TestDownloadAllReturnsZip(t *testing.T) {
 	}
 }
 
-func newTestApp(t *testing.T, cfg config.Config, upstream *httptest.Server) *App {
+func TestUnlockRejectsInvalidJSON(t *testing.T) {
+	app := newTestApp(t, config.Default(), sharedLinkServer(t, 1))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/share/unlock", strings.NewReader(`{"key":`))
+	app.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func newTestApp(t *testing.T, cfg config.Config, upstream *httptest.Server) *Server {
 	t.Helper()
 	t.Chdir("../..")
 	baseURL := "http://127.0.0.1:1"
@@ -166,10 +176,14 @@ func newTestApp(t *testing.T, cfg config.Config, upstream *httptest.Server) *App
 		baseURL = upstream.URL
 		httpClient = upstream.Client()
 	}
-	sessions := session.NewForTest(bytesOf(1, 32), bytesOf(2, 32), func() time.Time {
+	sessions := session.NewForTest([]byte("test-secret"), func() time.Time {
 		return time.Date(2026, 5, 23, 12, 0, 0, 0, time.UTC)
+	}, session.DefaultCookieOptions(), nil)
+	app, err := New(Options{
+		Config:   cfg,
+		Client:   immich.NewClient(baseURL, httpClient, func() time.Time { return time.Date(2026, 5, 23, 12, 0, 0, 0, time.UTC) }, nil),
+		Sessions: sessions,
 	})
-	app, err := New(cfg, &immich.Client{BaseURL: baseURL, HTTPClient: httpClient}, sessions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,9 +217,6 @@ func sharedLinkServer(t *testing.T, assetCount int) *httptest.Server {
 				AllowDownload: true,
 				Assets:        assets,
 			})
-		case strings.HasPrefix(r.URL.Path, "/api/assets/") && strings.Count(r.URL.Path, "/") == 3:
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(types.Asset{ID: testAssetID})
 		case strings.HasSuffix(r.URL.Path, "/thumbnail"):
 			w.Header().Set("Content-Type", "image/jpeg")
 			w.Header().Set("Content-Length", "11")
@@ -219,10 +230,10 @@ func sharedLinkServer(t *testing.T, assetCount int) *httptest.Server {
 	}))
 }
 
-func bytesOf(value byte, n int) []byte {
-	out := make([]byte, n)
-	for i := range out {
-		out[i] = value
+func TestRunStopsOnContextCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := Run(ctx, "127.0.0.1:0", http.NewServeMux(), nil); err != nil {
+		t.Fatal(err)
 	}
-	return out
 }

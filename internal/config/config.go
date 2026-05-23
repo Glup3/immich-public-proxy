@@ -1,35 +1,93 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
-	"path/filepath"
 )
 
+type DownloadedFilenameMode int
+
+const (
+	DownloadedFilenameOriginal DownloadedFilenameMode = iota
+	DownloadedFilenameAssetID
+	DownloadedFilenameShortID
+)
+
+type DownloadAllMode int
+
+const (
+	DownloadAllDisabled DownloadAllMode = iota
+	DownloadAllPerImmich
+	DownloadAllAlways
+)
+
+type InvalidResponseMode struct {
+	Drop        bool
+	StatusCode  int
+	RedirectURL string
+}
+
+func (m *InvalidResponseMode) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	switch {
+	case len(trimmed) == 0, bytes.Equal(trimmed, []byte("null")), bytes.Equal(trimmed, []byte("false")):
+		*m = InvalidResponseMode{}
+		return nil
+	case bytes.Equal(trimmed, []byte("true")):
+		*m = InvalidResponseMode{Drop: true}
+		return nil
+	}
+
+	var status int
+	if err := json.Unmarshal(trimmed, &status); err == nil {
+		*m = InvalidResponseMode{StatusCode: status}
+		return nil
+	}
+
+	var redirect string
+	if err := json.Unmarshal(trimmed, &redirect); err == nil {
+		*m = InvalidResponseMode{RedirectURL: redirect}
+		return nil
+	}
+
+	return errors.New("invalid customInvalidResponse value")
+}
+
+func (m InvalidResponseMode) Enabled() bool {
+	return m.Drop || m.StatusCode > 0 || m.RedirectURL != ""
+}
+
 type Config struct {
-	IPP          IPPConfig      `json:"ipp"`
-	LightGallery map[string]any `json:"lightGallery"`
+	IPP          IPPConfig       `json:"ipp"`
+	LightGallery json.RawMessage `json:"lightGallery"`
 }
 
 type IPPConfig struct {
-	ResponseHeaders        map[string]string `json:"responseHeaders"`
-	SingleImageGallery     bool              `json:"singleImageGallery"`
-	SingleItemAutoOpen     bool              `json:"singleItemAutoOpen"`
-	DownloadOriginalPhoto  bool              `json:"downloadOriginalPhoto"`
-	DownloadedFilename     int               `json:"downloadedFilename"`
-	AllowDownloadAll       int               `json:"allowDownloadAll"`
-	AllowSlugLinks         bool              `json:"allowSlugLinks"`
-	ShowHomePage           bool              `json:"showHomePage"`
-	ShowGalleryTitle       bool              `json:"showGalleryTitle"`
-	ShowGalleryDescription bool              `json:"showGalleryDescription"`
-	ShowMetadata           MetadataConfig    `json:"showMetadata"`
-	CustomInvalidResponse  any               `json:"customInvalidResponse"`
+	ResponseHeaders        map[string]string      `json:"responseHeaders"`
+	SingleImageGallery     bool                   `json:"singleImageGallery"`
+	SingleItemAutoOpen     bool                   `json:"singleItemAutoOpen"`
+	DownloadOriginalPhoto  bool                   `json:"downloadOriginalPhoto"`
+	DownloadedFilename     DownloadedFilenameMode `json:"downloadedFilename"`
+	AllowDownloadAll       DownloadAllMode        `json:"allowDownloadAll"`
+	AllowSlugLinks         bool                   `json:"allowSlugLinks"`
+	ShowHomePage           bool                   `json:"showHomePage"`
+	ShowGalleryTitle       bool                   `json:"showGalleryTitle"`
+	ShowGalleryDescription bool                   `json:"showGalleryDescription"`
+	ShowMetadata           MetadataConfig         `json:"showMetadata"`
+	CustomInvalidResponse  InvalidResponseMode    `json:"customInvalidResponse"`
 }
 
 type MetadataConfig struct {
 	Description bool `json:"description"`
+}
+
+type LoadOptions struct {
+	InlineJSON string
+	FilePaths  []string
 }
 
 func Default() Config {
@@ -42,8 +100,8 @@ func Default() Config {
 			SingleImageGallery:     false,
 			SingleItemAutoOpen:     true,
 			DownloadOriginalPhoto:  true,
-			DownloadedFilename:     0,
-			AllowDownloadAll:       0,
+			DownloadedFilename:     DownloadedFilenameOriginal,
+			AllowDownloadAll:       DownloadAllDisabled,
 			AllowSlugLinks:         true,
 			ShowHomePage:           true,
 			ShowGalleryTitle:       false,
@@ -51,106 +109,95 @@ func Default() Config {
 			ShowMetadata: MetadataConfig{
 				Description: false,
 			},
-			CustomInvalidResponse: false,
 		},
-		LightGallery: map[string]any{
-			"controls":        true,
-			"download":        true,
+		LightGallery: json.RawMessage(`{
+			"controls": true,
+			"download": true,
 			"customSlideName": true,
-			"mobileSettings": map[string]any{
-				"controls":      false,
+			"mobileSettings": {
+				"controls": false,
 				"showCloseIcon": true,
-				"download":      true,
-			},
-		},
+				"download": true
+			}
+		}`),
 	}
 }
 
-func Load() (Config, error) {
+func Load(options LoadOptions) (Config, error) {
 	cfg := Default()
-	if inline := os.Getenv("CONFIG"); inline != "" {
-		if err := mergeJSON([]byte(inline), &cfg); err != nil {
-			return cfg, fmt.Errorf("parse CONFIG: %w", err)
+	if options.InlineJSON != "" {
+		if err := decodeInto(&cfg, []byte(options.InlineJSON)); err != nil {
+			return cfg, fmt.Errorf("parse inline config: %w", err)
 		}
-		return cfg, nil
+		applyPostDecodeDefaults(&cfg)
+		return cfg, cfg.Validate()
 	}
 
-	candidates := []string{}
-	if path := os.Getenv("IPP_CONFIG"); path != "" {
-		candidates = append(candidates, path)
-	} else {
-		candidates = append(candidates, "/app/config.json", "config.json", filepath.Join("app", "config.json"))
-	}
-
-	for _, path := range candidates {
+	for _, path := range options.FilePaths {
 		data, err := os.ReadFile(path)
 		if err == nil {
-			if err := mergeJSON(data, &cfg); err != nil {
+			if err := decodeInto(&cfg, data); err != nil {
 				return cfg, fmt.Errorf("parse %s: %w", path, err)
 			}
-			return cfg, nil
+			applyPostDecodeDefaults(&cfg)
+			return cfg, cfg.Validate()
 		}
-		if !errors.Is(err, os.ErrNotExist) && os.Getenv("IPP_CONFIG") != "" {
-			return cfg, err
+		if !errors.Is(err, os.ErrNotExist) {
+			return cfg, fmt.Errorf("read %s: %w", path, err)
 		}
 	}
 
-	return cfg, nil
+	return cfg, cfg.Validate()
 }
 
-func mergeJSON(data []byte, cfg *Config) error {
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
+func decodeInto(cfg *Config, data []byte) error {
+	var probe struct {
+		IPP *struct {
+			ResponseHeaders json.RawMessage `json:"responseHeaders"`
+		} `json:"ipp"`
+		LightGallery *json.RawMessage `json:"lightGallery"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
 		return err
 	}
-	if err := json.Unmarshal(data, cfg); err != nil {
-		return err
+	if probe.IPP != nil && probe.IPP.ResponseHeaders != nil {
+		cfg.IPP.ResponseHeaders = nil
 	}
-	mergeDefaults(raw, cfg)
+	if probe.LightGallery != nil {
+		cfg.LightGallery = nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(cfg)
+}
+
+func (c Config) Validate() error {
+	if c.IPP.DownloadedFilename < DownloadedFilenameOriginal || c.IPP.DownloadedFilename > DownloadedFilenameShortID {
+		return fmt.Errorf("invalid downloadedFilename value %d", c.IPP.DownloadedFilename)
+	}
+	if c.IPP.AllowDownloadAll < DownloadAllDisabled || c.IPP.AllowDownloadAll > DownloadAllAlways {
+		return fmt.Errorf("invalid allowDownloadAll value %d", c.IPP.AllowDownloadAll)
+	}
+	if c.IPP.CustomInvalidResponse.StatusCode < 0 {
+		return fmt.Errorf("invalid customInvalidResponse status %d", c.IPP.CustomInvalidResponse.StatusCode)
+	}
+	if c.IPP.CustomInvalidResponse.RedirectURL != "" && c.IPP.CustomInvalidResponse.StatusCode != 0 {
+		return errors.New("customInvalidResponse cannot use redirect and status code together")
+	}
 	return nil
 }
 
-func mergeDefaults(raw map[string]any, cfg *Config) {
-	defaults := Default()
-	if _, ok := raw["ipp"]; !ok {
-		cfg.IPP = defaults.IPP
-	}
-	ippRaw, _ := raw["ipp"].(map[string]any)
-	if _, ok := ippRaw["responseHeaders"]; !ok && cfg.IPP.ResponseHeaders == nil {
-		cfg.IPP.ResponseHeaders = defaults.IPP.ResponseHeaders
-	}
-	if headersRaw, ok := ippRaw["responseHeaders"]; ok {
-		cfg.IPP.ResponseHeaders = map[string]string{}
-		if headers, ok := headersRaw.(map[string]any); ok {
-			for key, value := range headers {
-				if str, ok := value.(string); ok {
-					cfg.IPP.ResponseHeaders[key] = str
-				}
-			}
-		}
-	}
-	if _, ok := ippRaw["singleItemAutoOpen"]; !ok {
-		cfg.IPP.SingleItemAutoOpen = defaults.IPP.SingleItemAutoOpen
-	}
-	if _, ok := ippRaw["downloadOriginalPhoto"]; !ok {
-		cfg.IPP.DownloadOriginalPhoto = defaults.IPP.DownloadOriginalPhoto
-	}
-	if _, ok := ippRaw["allowSlugLinks"]; !ok {
-		cfg.IPP.AllowSlugLinks = defaults.IPP.AllowSlugLinks
-	}
-	if _, ok := ippRaw["showHomePage"]; !ok {
-		cfg.IPP.ShowHomePage = defaults.IPP.ShowHomePage
-	}
-	if _, ok := ippRaw["customInvalidResponse"]; !ok {
-		cfg.IPP.CustomInvalidResponse = defaults.IPP.CustomInvalidResponse
-	}
-	if _, ok := raw["lightGallery"]; !ok || cfg.LightGallery == nil {
-		cfg.LightGallery = defaults.LightGallery
+func (c Config) AddResponseHeaders(header http.Header) {
+	for key, value := range c.IPP.ResponseHeaders {
+		header.Set(key, value)
 	}
 }
 
-func (c Config) AddResponseHeaders(header interface{ Set(string, string) }) {
-	for key, value := range c.IPP.ResponseHeaders {
-		header.Set(key, value)
+func applyPostDecodeDefaults(cfg *Config) {
+	if cfg.LightGallery == nil {
+		cfg.LightGallery = Default().LightGallery
+	}
+	if cfg.IPP.ResponseHeaders == nil {
+		cfg.IPP.ResponseHeaders = Default().IPP.ResponseHeaders
 	}
 }

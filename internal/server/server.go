@@ -1,14 +1,16 @@
 package server
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -17,273 +19,391 @@ import (
 	"github.com/alangrainger/immich-public-proxy/internal/immich"
 	"github.com/alangrainger/immich-public-proxy/internal/invalid"
 	"github.com/alangrainger/immich-public-proxy/internal/render"
+	"github.com/alangrainger/immich-public-proxy/internal/sanitize"
 	"github.com/alangrainger/immich-public-proxy/internal/session"
 	"github.com/alangrainger/immich-public-proxy/internal/types"
 )
 
-type App struct {
-	Config   config.Config
-	Immich   *immich.Client
-	Renderer *render.Renderer
-	Session  *session.Manager
-	Invalid  invalid.Handler
-	Router   chi.Router
+type Options struct {
+	Config        config.Config
+	Client        *immich.Client
+	Sessions      *session.Manager
+	Logger        *slog.Logger
+	PublicBaseURL string
 }
 
-func New(cfg config.Config, immichClient *immich.Client, sessions *session.Manager) (*App, error) {
-	invalidHandler := invalid.New(cfg)
-	renderer, err := render.New(cfg, immichClient, invalidHandler)
+type Server struct {
+	config   config.Config
+	client   *immich.Client
+	renderer *render.Renderer
+	sessions *session.Manager
+	invalid  invalid.Handler
+	router   chi.Router
+	logger   *slog.Logger
+}
+
+func New(options Options) (*Server, error) {
+	if options.Logger == nil {
+		options.Logger = slog.Default()
+	}
+	if options.Client == nil {
+		return nil, fmt.Errorf("immich client is required")
+	}
+	if options.Sessions == nil {
+		return nil, fmt.Errorf("session manager is required")
+	}
+	renderer, err := render.New(options.Config, options.PublicBaseURL)
 	if err != nil {
 		return nil, err
 	}
-	app := &App{
-		Config:   cfg,
-		Immich:   immichClient,
-		Renderer: renderer,
-		Session:  sessions,
-		Invalid:  invalidHandler,
-		Router:   chi.NewRouter(),
+	srv := &Server{
+		config:   options.Config,
+		client:   options.Client,
+		renderer: renderer,
+		sessions: options.Sessions,
+		invalid:  invalid.New(options.Config.IPP.CustomInvalidResponse, options.Logger),
+		router:   chi.NewRouter(),
+		logger:   options.Logger,
 	}
-	app.routes()
-	return app, nil
+	srv.routes()
+	return srv, nil
 }
 
-func (a *App) routes() {
-	a.Router.Get("/healthcheck", a.healthcheck)
-	a.Router.Get("/share/healthcheck", a.healthcheck)
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.router.ServeHTTP(w, r)
+}
 
-	a.Router.Get("/share/static/*", a.static("/share/static/"))
-	a.Router.Get("/robots.txt", a.staticRoot)
-	a.Router.Get("/favicon.ico", a.staticRoot)
+func (s *Server) routes() {
+	s.router.Get("/healthcheck", s.healthcheck)
+	s.router.Get("/share/healthcheck", s.healthcheck)
 
-	a.Router.Get("/{shareType:share|s}/{key}", a.share)
-	a.Router.Get("/{shareType:share|s}/{key}/download", a.share)
-	a.Router.Post("/share/unlock", a.unlock)
-	a.Router.Post("/{shareType:share|s}/{key}", a.redirectPostShare)
-	a.Router.Post("/{shareType:share|s}/{key}/download", a.redirectPostShare)
+	s.router.Get("/share/static/*", s.static("/share/static/"))
+	s.router.Get("/robots.txt", s.staticRoot)
+	s.router.Get("/favicon.ico", s.staticRoot)
 
-	a.Router.Get("/share/{type:photo|video}/{key}/{id}", a.asset)
-	a.Router.Get("/share/{type:photo|video}/{key}/{id}/{size}", a.asset)
+	s.router.Get("/{shareType:share|s}/{key}", s.share)
+	s.router.Get("/{shareType:share|s}/{key}/download", s.share)
+	s.router.Post("/share/unlock", s.unlock)
+	s.router.Post("/{shareType:share|s}/{key}", s.redirectPostShare)
+	s.router.Post("/{shareType:share|s}/{key}/download", s.redirectPostShare)
 
-	if a.Config.IPP.ShowHomePage {
-		a.Router.Get("/", a.home)
-		a.Router.Get("/share", a.home)
-		a.Router.Get("/share/", a.home)
+	s.router.Get("/share/{type:photo|video}/{key}/{id}", s.asset)
+	s.router.Get("/share/{type:photo|video}/{key}/{id}/{size}", s.asset)
+
+	if s.config.IPP.ShowHomePage {
+		s.router.Get("/", s.home)
+		s.router.Get("/share", s.home)
+		s.router.Get("/share/", s.home)
 	}
-	a.Router.Get("/*", a.staticRootOrNotFound)
+	s.router.Get("/*", s.staticRootOrNotFound)
 }
 
-func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	a.Router.ServeHTTP(w, r)
+func Run(ctx context.Context, addr string, handler http.Handler, logger *slog.Logger) error {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	httpServer := &http.Server{
+		Addr:    addr,
+		Handler: handler,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		logger.Info("server started", "addr", addr)
+		errCh <- httpServer.ListenAndServe()
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		return nil
+	case err := <-errCh:
+		if err == http.ErrServerClosed {
+			return nil
+		}
+		return err
+	}
 }
 
-func (a *App) healthcheck(w http.ResponseWriter, _ *http.Request) {
-	if a.Immich.Accessible() {
+func (s *Server) healthcheck(w http.ResponseWriter, r *http.Request) {
+	if s.client.Accessible(r.Context()) {
 		_, _ = w.Write([]byte("ok"))
 		return
 	}
 	w.WriteHeader(http.StatusServiceUnavailable)
 }
 
-func (a *App) share(w http.ResponseWriter, r *http.Request) {
-	a.Config.AddResponseHeaders(w.Header())
+func (s *Server) share(w http.ResponseWriter, r *http.Request) {
+	s.config.AddResponseHeaders(w.Header())
 	shareType := chi.URLParam(r, "shareType")
 	key := chi.URLParam(r, "key")
-	mode := ""
+	mode := types.ShareModeView
 	if strings.HasSuffix(r.URL.Path, "/download") {
-		mode = "download"
+		mode = types.ShareModeDownload
 	}
+
 	keyType := immich.KeyTypeFromShare(shareType)
-	if keyType == types.KeyTypeSlug && !a.Config.IPP.AllowSlugLinks {
-		a.Invalid.Respond(w, http.StatusNotFound, "Slug links are disabled in config.json")
+	if keyType == types.KeyTypeSlug && !s.config.IPP.AllowSlugLinks {
+		s.invalid.Respond(w, http.StatusNotFound, "slug links are disabled")
 		return
 	}
-	password := a.Session.Password(r, key)
-	a.handleShareRequest(w, r, types.IncomingShareRequest{
-		Request:  r,
-		Key:      key,
-		KeyType:  keyType,
-		Mode:     mode,
-		Password: password,
-	})
-}
-
-func (a *App) handleShareRequest(w http.ResponseWriter, r *http.Request, incoming types.IncomingShareRequest) {
-	if !immich.IsKey(incoming.Key) {
-		a.Invalid.Respond(w, http.StatusNotFound, "Wrong key format "+incoming.Key)
+	if !immich.IsKey(key) {
+		s.invalid.Respond(w, http.StatusNotFound, "wrong key format "+key)
 		return
 	}
 
-	sharedLinkRes := a.Immich.GetShareByKey(incoming.Key, incoming.Password, incoming.KeyType)
-	if !sharedLinkRes.Valid {
-		a.Invalid.Respond(w, http.StatusNotFound, "Invalid request")
+	password := s.sessions.Password(r, key)
+	link, access, err := s.client.FetchSharedLink(r.Context(), key, password, keyType)
+	if err != nil {
+		s.logger.Error("fetch shared link", "key", key, "key_type", keyType, "error", err)
+		s.invalid.Respond(w, http.StatusNotFound, "invalid request")
+		return
+	}
+	if access == types.ShareAccessInvalid {
+		s.invalid.Respond(w, http.StatusNotFound, "invalid request")
 		return
 	}
 
-	invalidPassword := sharedLinkRes.PasswordRequired && incoming.Password != ""
+	invalidPassword := access == types.ShareAccessPasswordRequired && password != ""
 	if invalidPassword {
-		invalid.Log("Invalid password for key " + incoming.Key)
-		a.Session.ClearKey(w, r, incoming.Key)
+		s.logger.Info("invalid password", "key", key)
+		_ = s.sessions.ClearKey(w, r, key)
 	}
-	if sharedLinkRes.PasswordRequired || incoming.Password != "" {
-		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
+	if access == types.ShareAccessPasswordRequired || password != "" {
+		setNoStoreHeaders(w.Header())
 	}
-	if sharedLinkRes.PasswordRequired {
-		key := sanitizeKey(incoming.Key)
+	if access == types.ShareAccessPasswordRequired {
 		if invalidPassword {
 			w.WriteHeader(http.StatusUnauthorized)
 		}
-		a.Renderer.Password(w, key, incoming.Password != "")
+		if err := s.renderer.Password(w, sanitizeKey(key), password != ""); err != nil {
+			s.logger.Error("render password page", "error", err)
+		}
 		return
 	}
-	if sharedLinkRes.Link == nil {
-		a.Invalid.Respond(w, http.StatusNotFound, "Unknown error with key "+incoming.Key)
-		return
-	}
-	link := sharedLinkRes.Link
 
-	if incoming.Password != "" && a.Session.Password(r, link.Key) == "" {
-		a.Session.SetPassword(w, r, link.Key, incoming.Password)
+	if password != "" && s.sessions.Password(r, link.Key) == "" {
+		if err := s.sessions.SetPassword(w, r, link.Key, password); err != nil {
+			s.logger.Error("store session password", "key", link.Key, "error", err)
+		}
 	}
 
-	if incoming.Mode == "download" && render.CanDownload(a.Config, link) {
-		a.Renderer.DownloadAll(w, link)
+	if mode == types.ShareModeDownload && render.CanDownload(s.config, &link) {
+		if err := s.downloadAll(r.Context(), w, &link); err != nil {
+			s.logger.Error("download all", "key", key, "error", err)
+			s.invalid.Respond(w, http.StatusNotFound, "download failed")
+		}
 		return
 	}
 	if len(link.Assets) == 1 {
-		invalid.Log("Serving link " + incoming.Key)
+		s.logger.Info("serving link", "key", key)
 		asset := link.Assets[0]
-		if asset.Type == types.AssetTypeImage && !a.Config.IPP.SingleImageGallery && incoming.Password == "" {
-			a.Renderer.AssetBuffer(incoming, w, asset, types.ImageSizePreview)
+		if asset.Type == types.AssetTypeImage && !s.config.IPP.SingleImageGallery && password == "" {
+			s.serveAsset(w, r, asset, types.ImageSizePreview)
 			return
 		}
 		openItem := 0
-		if a.Config.IPP.SingleItemAutoOpen {
+		if s.config.IPP.SingleItemAutoOpen {
 			openItem = 1
 		}
-		a.Renderer.Gallery(w, r, link, openItem)
+		if err := s.renderer.Gallery(w, r, &link, openItem, render.CanDownload(s.config, &link)); err != nil {
+			s.logger.Error("render gallery", "error", err)
+		}
 		return
 	}
 
-	invalid.Log("Serving link " + incoming.Key)
-	a.Renderer.Gallery(w, r, link, 0)
+	s.logger.Info("serving link", "key", key)
+	if err := s.renderer.Gallery(w, r, &link, 0, render.CanDownload(s.config, &link)); err != nil {
+		s.logger.Error("render gallery", "error", err)
+	}
 }
 
-func (a *App) unlock(w http.ResponseWriter, r *http.Request) {
+func (s *Server) unlock(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Key      string `json:"key"`
 		Password string `json:"password"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	if body.Key != "" {
-		a.Session.SetPassword(w, r, body.Key, body.Password)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if body.Key == "" {
+		http.Error(w, "missing key", http.StatusBadRequest)
+		return
+	}
+	if err := s.sessions.SetPassword(w, r, body.Key, body.Password); err != nil {
+		s.logger.Error("store session password", "key", body.Key, "error", err)
+		http.Error(w, "unable to store password", http.StatusInternalServerError)
+		return
 	}
 }
 
-func (a *App) redirectPostShare(w http.ResponseWriter, r *http.Request) {
+func (s *Server) redirectPostShare(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, r.URL.RequestURI(), http.StatusSeeOther)
 }
 
-func (a *App) asset(w http.ResponseWriter, r *http.Request) {
-	a.Config.AddResponseHeaders(w.Header())
+func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
+	s.config.AddResponseHeaders(w.Header())
 	assetType := chi.URLParam(r, "type")
 	key := chi.URLParam(r, "key")
 	id := chi.URLParam(r, "id")
 	size := chi.URLParam(r, "size")
 
 	if !immich.IsKey(key) || !immich.IsID(id) {
-		a.Invalid.Respond(w, http.StatusNotFound, "Invalid key or ID for "+r.URL.Path)
+		s.invalid.Respond(w, http.StatusNotFound, "invalid key or ID for "+r.URL.Path)
 		return
 	}
 	if size != "" && !immich.IsImageSize(size) {
-		a.Invalid.Respond(w, http.StatusNotFound, "Invalid size parameter "+r.URL.Path)
+		s.invalid.Respond(w, http.StatusNotFound, "invalid size parameter "+r.URL.Path)
 		return
 	}
 
-	password := a.Session.Password(r, key)
-	share := a.Immich.GetShareByKey(key, password, types.KeyTypeKey)
-	if !share.Valid {
-		a.Invalid.Respond(w, http.StatusNotFound, "Invalid share link")
+	password := s.sessions.Password(r, key)
+	link, access, err := s.client.FetchSharedLink(r.Context(), key, password, types.KeyTypeKey)
+	if err != nil {
+		s.logger.Error("fetch shared link for asset", "key", key, "error", err)
+		s.invalid.Respond(w, http.StatusNotFound, "invalid share link")
 		return
 	}
-	if share.PasswordRequired {
+	if access == types.ShareAccessPasswordRequired {
 		http.Redirect(w, r, "/share/"+key, http.StatusFound)
 		return
 	}
-	if share.Link == nil {
-		a.Invalid.Respond(w, http.StatusNotFound, "Invalid share link")
+	if access == types.ShareAccessInvalid {
+		s.invalid.Respond(w, http.StatusNotFound, "invalid share link")
 		return
 	}
 
-	var matched *types.Asset
-	for i := range share.Link.Assets {
-		if share.Link.Assets[i].ID == id {
-			matched = &share.Link.Assets[i]
-			break
-		}
-	}
-	if matched == nil {
-		a.Invalid.Respond(w, http.StatusNotFound, "Asset not found in share")
+	asset, ok := findAsset(link.Assets, id)
+	if !ok {
+		s.invalid.Respond(w, http.StatusNotFound, "asset not found in share")
 		return
 	}
-	asset := *matched
 	if assetType == "video" {
 		asset.Type = types.AssetTypeVideo
 	} else {
 		asset.Type = types.AssetTypeImage
 	}
-	a.Renderer.AssetBuffer(types.IncomingShareRequest{
-		Request: r,
-		Key:     key,
-		Range:   r.Header.Get("Range"),
-	}, w, asset, size)
+	s.serveAsset(w, r, asset, types.ImageSize(size))
 }
 
-func (a *App) home(w http.ResponseWriter, _ *http.Request) {
-	a.Renderer.Home(w)
+func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request, asset types.Asset, size types.ImageSize) {
+	resp, err := s.client.StreamAsset(r.Context(), asset, size, r.Header.Get("Range"), s.config.IPP.DownloadOriginalPhoto)
+	if err != nil {
+		s.logger.Error("proxy asset", "asset_id", asset.ID, "error", err)
+		s.invalid.Respond(w, http.StatusNotFound, "failed response from immich for asset "+asset.ID)
+		return
+	}
+	defer resp.Body.Close()
+
+	if size == types.ImageSizeOriginal && asset.OriginalFileName != "" && s.config.IPP.DownloadOriginalPhoto {
+		w.Header().Set("Content-Disposition", `attachment; filename="`+render.Filename(s.config, asset)+`"`)
+	}
+	copyHeaders(w.Header(), resp.Header, []string{
+		"Content-Type",
+		"Content-Length",
+		"Last-Modified",
+		"ETag",
+		"Cache-Control",
+		"Content-Range",
+	})
+	if asset.Type == types.AssetTypeVideo {
+		w.Header().Set("Accept-Ranges", "bytes")
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }
 
-func (a *App) notFound(w http.ResponseWriter, r *http.Request) {
-	a.Invalid.Respond(w, http.StatusNotFound, "Invalid route "+r.URL.Path)
+func (s *Server) downloadAll(ctx context.Context, w http.ResponseWriter, share *types.SharedLink) error {
+	w.Header().Set("Content-Type", "application/zip")
+	filename := sanitize.Filename(render.Title(share))
+	if filename == "" {
+		filename = "photos"
+	}
+	w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+filename+".zip")
+
+	zipWriter := zip.NewWriter(w)
+	defer zipWriter.Close()
+
+	for _, asset := range share.Assets {
+		resp, err := s.client.DownloadAsset(ctx, asset, s.config.IPP.DownloadOriginalPhoto)
+		if err != nil {
+			s.logger.Warn("download asset", "asset_id", asset.ID, "error", err)
+			continue
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			s.logger.Warn("download asset unexpected status", "asset_id", asset.ID, "status", resp.StatusCode)
+			_ = resp.Body.Close()
+			continue
+		}
+		writer, err := zipWriter.Create(render.Filename(s.config, asset))
+		if err != nil {
+			_ = resp.Body.Close()
+			return err
+		}
+		_, copyErr := io.Copy(writer, resp.Body)
+		closeErr := resp.Body.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+	return nil
 }
 
-func (a *App) static(prefix string) http.HandlerFunc {
+func (s *Server) home(w http.ResponseWriter, _ *http.Request) {
+	if err := s.renderer.Home(w); err != nil {
+		s.logger.Error("render home", "error", err)
+	}
+}
+
+func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
+	s.invalid.Respond(w, http.StatusNotFound, "invalid route "+r.URL.Path)
+}
+
+func (s *Server) static(prefix string) http.HandlerFunc {
 	fs := http.StripPrefix(prefix, http.FileServer(http.Dir("public")))
 	return func(w http.ResponseWriter, r *http.Request) {
 		cleanPath := filepath.Clean(strings.TrimPrefix(r.URL.Path, prefix))
 		if cleanPath == "." || strings.HasPrefix(cleanPath, "..") {
-			a.notFound(w, r)
+			s.notFound(w, r)
 			return
 		}
 		info, err := os.Stat(filepath.Join("public", cleanPath))
 		if err != nil || info.IsDir() {
-			a.notFound(w, r)
+			s.notFound(w, r)
 			return
 		}
-		a.Config.AddResponseHeaders(w.Header())
+		s.config.AddResponseHeaders(w.Header())
 		fs.ServeHTTP(w, r)
 	}
 }
 
-func (a *App) staticRoot(w http.ResponseWriter, r *http.Request) {
-	a.Config.AddResponseHeaders(w.Header())
+func (s *Server) staticRoot(w http.ResponseWriter, r *http.Request) {
+	s.config.AddResponseHeaders(w.Header())
 	http.FileServer(http.Dir("public")).ServeHTTP(w, r)
 }
 
-func (a *App) staticRootOrNotFound(w http.ResponseWriter, r *http.Request) {
+func (s *Server) staticRootOrNotFound(w http.ResponseWriter, r *http.Request) {
 	cleanPath := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
 	if cleanPath == "." || strings.HasPrefix(cleanPath, "..") {
-		a.notFound(w, r)
+		s.notFound(w, r)
 		return
 	}
 	info, err := os.Stat(filepath.Join("public", cleanPath))
 	if err != nil || info.IsDir() {
-		a.notFound(w, r)
+		s.notFound(w, r)
 		return
 	}
-	a.staticRoot(w, r)
+	s.staticRoot(w, r)
 }
 
 func sanitizeKey(key string) string {
@@ -296,34 +416,25 @@ func sanitizeKey(key string) string {
 	return b.String()
 }
 
-func Run(app *App) error {
-	port := os.Getenv("IPP_PORT")
-	if port == "" {
-		port = "3000"
-	}
-	server := &http.Server{
-		Addr:    ":" + port,
-		Handler: app,
-	}
-	errCh := make(chan error, 1)
-	go func() {
-		invalid.Log("Server started on port " + port)
-		errCh <- server.ListenAndServe()
-	}()
+func setNoStoreHeaders(header http.Header) {
+	header.Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+	header.Set("Pragma", "no-cache")
+	header.Set("Expires", "0")
+}
 
-	signalCh := make(chan os.Signal, 1)
-	signal.Notify(signalCh, syscall.SIGTERM, os.Interrupt)
-
-	select {
-	case sig := <-signalCh:
-		invalid.Log("Received " + sig.String() + ". Gracefully shutting down...")
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return server.Shutdown(ctx)
-	case err := <-errCh:
-		if err == http.ErrServerClosed {
-			return nil
+func copyHeaders(dst, src http.Header, keys []string) {
+	for _, key := range keys {
+		if value := src.Get(key); value != "" {
+			dst.Set(key, value)
 		}
-		return err
 	}
+}
+
+func findAsset(assets []types.Asset, id string) (types.Asset, bool) {
+	for _, asset := range assets {
+		if asset.ID == id {
+			return asset, true
+		}
+	}
+	return types.Asset{}, false
 }
