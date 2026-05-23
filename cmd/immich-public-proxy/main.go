@@ -23,7 +23,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	sessions, err := session.NewManager([]byte(runtime.SessionSecret), nil, session.DefaultCookieOptions(), logger)
+	sessions, err := session.New([]byte(runtime.SessionSecret), nil, session.DefaultCookieOptions(), logger)
 	if err != nil {
 		logger.Error("create session manager", "error", err)
 		os.Exit(1)

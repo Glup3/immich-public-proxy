@@ -32,7 +32,7 @@ const (
 type Options struct {
 	Config        config.Config
 	Client        *immich.Client
-	Sessions      *session.Manager
+	Sessions      *session.Store
 	Logger        *slog.Logger
 	PublicBaseURL string
 }
@@ -41,7 +41,7 @@ type Server struct {
 	config   config.Config
 	client   *immich.Client
 	renderer *render.Renderer
-	sessions *session.Manager
+	sessions *session.Store
 	router   chi.Router
 	logger   *slog.Logger
 }
@@ -159,7 +159,7 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	password := s.sessions.Password(r, key)
+	password := s.sessions.PasswordForShare(r, key)
 	link, access, err := s.client.FetchSharedLink(r.Context(), key, password, keyType)
 	if err != nil {
 		s.logger.Error("fetch shared link", "key", key, "key_type", keyType, "error", err)
@@ -174,7 +174,7 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 	invalidPassword := access == immich.ShareAccessPasswordRequired && password != ""
 	if invalidPassword {
 		s.logger.Info("invalid password", "key", key)
-		_ = s.sessions.ClearKey(w, r, key)
+		_ = s.sessions.ForgetShare(w, r, key)
 	}
 	if access == immich.ShareAccessPasswordRequired || password != "" {
 		setNoStoreHeaders(w.Header())
@@ -189,8 +189,8 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if password != "" && s.sessions.Password(r, link.Key) == "" {
-		if err := s.sessions.SetPassword(w, r, link.Key, password); err != nil {
+	if password != "" && s.sessions.PasswordForShare(r, link.Key) == "" {
+		if err := s.sessions.RememberPassword(w, r, link.Key, password); err != nil {
 			s.logger.Error("store session password", "key", link.Key, "error", err)
 		}
 	}
@@ -240,7 +240,7 @@ func (s *Server) unlock(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing key", http.StatusBadRequest)
 		return
 	}
-	if err := s.sessions.SetPassword(w, r, body.Key, body.Password); err != nil {
+	if err := s.sessions.RememberPassword(w, r, body.Key, body.Password); err != nil {
 		s.logger.Error("store session password", "key", body.Key, "error", err)
 		http.Error(w, "unable to store password", http.StatusInternalServerError)
 		return
@@ -267,7 +267,7 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	password := s.sessions.Password(r, key)
+	password := s.sessions.PasswordForShare(r, key)
 	link, access, err := s.client.FetchSharedLink(r.Context(), key, password, immich.KeyTypeKey)
 	if err != nil {
 		s.logger.Error("fetch shared link for asset", "key", key, "error", err)
