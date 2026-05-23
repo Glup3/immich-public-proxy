@@ -136,6 +136,34 @@ func TestBuildGalleryGroupsPreservesOrderAndAppendsUndated(t *testing.T) {
 	}
 }
 
+func TestBuildMapPointsUsesExifCoordinatesBeforeAssetCoordinates(t *testing.T) {
+	t.Parallel()
+
+	exifLat := 10.5
+	exifLng := 20.5
+	assetLat := 30.5
+	assetLng := 40.5
+	points := buildMapPoints([]immich.Asset{{
+		ID:        "a",
+		Latitude:  &assetLat,
+		Longitude: &assetLng,
+		ExifInfo: &immich.ExifInfo{
+			Latitude:  &exifLat,
+			Longitude: &exifLng,
+		},
+	}}, []GalleryItem{{
+		ThumbnailURL: "/thumb",
+		PreviewURL:   "/preview",
+	}})
+
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	if points[0].Latitude != exifLat || points[0].Longitude != exifLng {
+		t.Fatalf("unexpected point coordinates: %#v", points[0])
+	}
+}
+
 func TestGalleryRendersDateGroupsAndFlatItemsJSON(t *testing.T) {
 	t.Parallel()
 
@@ -201,5 +229,59 @@ func TestGalleryRendersDateGroupsAndFlatItemsJSON(t *testing.T) {
 	}
 	if len(payload.Items) != 3 {
 		t.Fatalf("expected 3 flat items in payload, got %d", len(payload.Items))
+	}
+}
+
+func TestGalleryRendersMapWhenCoordinatesPresent(t *testing.T) {
+	t.Parallel()
+
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("failed to resolve test file path")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(repoRoot); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+
+	lat := 48.2082
+	lng := 16.3738
+	cfg := config.Default()
+	renderer, err := New(cfg, "https://example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	share := &immich.SharedLink{
+		Key: "share-key",
+		Assets: []immich.Asset{{
+			ID:            "a",
+			Type:          immich.AssetTypeImage,
+			FileCreatedAt: "2024-02-01T00:00:00Z",
+			ExifInfo: &immich.ExifInfo{
+				Latitude:  &lat,
+				Longitude: &lng,
+			},
+		}},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/share/share-key", nil)
+	if err := renderer.Gallery(rec, req, share, 0, false); err != nil {
+		t.Fatal(err)
+	}
+
+	body := rec.Body.String()
+	for _, want := range []string{"gallery-map", "leaflet.css", "initMap([", "48.2082"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected body to contain %q: %s", want, body)
+		}
 	}
 }

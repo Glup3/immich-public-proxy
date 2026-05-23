@@ -65,5 +65,43 @@ class LGallery {
       spinner.remove()
     }
   }
+
+  initMap (points = []) {
+    if (!points.length || typeof L === 'undefined') {
+      return
+    }
+
+    const mapElement = document.getElementById('gallery-map')
+    if (!mapElement) {
+      return
+    }
+
+    const map = L.map(mapElement, { scrollWheelZoom: false })
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map)
+
+    const bounds = []
+    points.forEach(point => {
+      const marker = L.marker([point.latitude, point.longitude]).addTo(map)
+      if (point.thumbnailUrl) {
+        marker.bindPopup(`<img alt="" src="${point.thumbnailUrl}" style="display:block;max-width:120px;max-height:120px"/>`)
+      }
+      marker.on('click', () => {
+        const thumbs = document.querySelectorAll('#lightgallery a')
+        const target = thumbs[point.index]
+        if (target) {
+          target.click()
+        }
+      })
+      bounds.push([point.latitude, point.longitude])
+    })
+
+    if (bounds.length === 1) {
+      map.setView(bounds[0], 12)
+    } else {
+      map.fitBounds(bounds, { padding: [24, 24] })
+    }
+  }
 }
 const lgallery = new LGallery()

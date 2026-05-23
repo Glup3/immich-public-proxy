@@ -63,6 +63,10 @@ html {
         object-fit: cover;
         object-position: center;
     }
+
+    #gallery-map {
+        height: 240px;
+    }
 }
 @media (min-width: 801px) {
     #lightgallery a.thumb-error {
@@ -114,6 +118,17 @@ html {
     font-size: 18pt;
     font-weight: bold;
     margin: 4px;
+}
+
+#gallery-map-section {
+    margin: 12px 4px 24px;
+}
+
+#gallery-map {
+    height: 320px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid #333;
 }
 
 #album-description h2 {

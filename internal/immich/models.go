@@ -40,10 +40,12 @@ const (
 )
 
 type ExifInfo struct {
-	Description      string `json:"description,omitempty"`
-	DateTimeOriginal string `json:"dateTimeOriginal,omitempty"`
-	LocalDateTime    string `json:"localDateTime,omitempty"`
-	TimeZone         string `json:"timeZone,omitempty"`
+	Description      string   `json:"description,omitempty"`
+	DateTimeOriginal string   `json:"dateTimeOriginal,omitempty"`
+	LocalDateTime    string   `json:"localDateTime,omitempty"`
+	TimeZone         string   `json:"timeZone,omitempty"`
+	Latitude         *float64 `json:"latitude,omitempty"`
+	Longitude        *float64 `json:"longitude,omitempty"`
 }
 
 type Asset struct {
@@ -55,6 +57,8 @@ type Asset struct {
 	Password         string    `json:"password,omitempty"`
 	FileCreatedAt    string    `json:"fileCreatedAt,omitempty"`
 	LocalDateTime    string    `json:"localDateTime,omitempty"`
+	Latitude         *float64  `json:"latitude,omitempty"`
+	Longitude        *float64  `json:"longitude,omitempty"`
 	Type             AssetType `json:"type"`
 	IsTrashed        bool      `json:"isTrashed"`
 	Visibility       string    `json:"visibility,omitempty"`

@@ -45,10 +45,20 @@ type GalleryGroup struct {
 	Items []GalleryItem
 }
 
+type MapPoint struct {
+	AssetID      string  `json:"assetId"`
+	Index        int     `json:"index"`
+	Latitude     float64 `json:"latitude"`
+	Longitude    float64 `json:"longitude"`
+	ThumbnailURL string  `json:"thumbnailUrl"`
+	PreviewURL   string  `json:"previewUrl"`
+}
+
 type GalleryPageData struct {
 	Items         []GalleryItem
 	Groups        []GalleryGroup
 	ItemsJSON     template.JS
+	MapPointsJSON template.JS
 	OpenItem      int
 	Title         string
 	Description   string
@@ -56,6 +66,7 @@ type GalleryPageData struct {
 	Path          string
 	ShowDownload  bool
 	ShowTitle     bool
+	ShowMap       bool
 	HasMore       bool
 }
 
@@ -89,6 +100,7 @@ func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immi
 		items = append(items, r.galleryItem(share, asset))
 	}
 	groups := buildGalleryGroups(share.Assets, items)
+	mapPoints := buildMapPoints(share.Assets, items)
 
 	itemsJSON, err := json.Marshal(struct {
 		LGConfig json.RawMessage `json:"lgConfig"`
@@ -102,6 +114,10 @@ func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immi
 	if err != nil {
 		return fmt.Errorf("marshal gallery payload: %w", err)
 	}
+	mapPointsJSON, err := json.Marshal(mapPoints)
+	if err != nil {
+		return fmt.Errorf("marshal map points: %w", err)
+	}
 
 	description := ""
 	if r.config.IPP.ShowGalleryDescription {
@@ -111,6 +127,7 @@ func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immi
 		Items:         items,
 		Groups:        groups,
 		ItemsJSON:     template.JS(itemsJSON),
+		MapPointsJSON: template.JS(mapPointsJSON),
 		OpenItem:      openItem,
 		Title:         Title(share),
 		Description:   description,
@@ -118,6 +135,7 @@ func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immi
 		Path:          "/share/" + share.Key,
 		ShowDownload:  showDownload,
 		ShowTitle:     r.config.IPP.ShowGalleryTitle,
+		ShowMap:       len(mapPoints) > 0,
 		HasMore:       false,
 	}
 	return r.templates.ExecuteTemplate(w, "gallery.html", data)
@@ -286,6 +304,35 @@ func buildGalleryGroups(assets []immich.Asset, items []GalleryItem) []GalleryGro
 	}
 
 	return groups
+}
+
+func buildMapPoints(assets []immich.Asset, items []GalleryItem) []MapPoint {
+	points := make([]MapPoint, 0)
+	for i, asset := range assets {
+		lat, lng, ok := assetCoordinates(asset)
+		if !ok {
+			continue
+		}
+		points = append(points, MapPoint{
+			AssetID:      asset.ID,
+			Index:        i,
+			Latitude:     lat,
+			Longitude:    lng,
+			ThumbnailURL: items[i].ThumbnailURL,
+			PreviewURL:   items[i].PreviewURL,
+		})
+	}
+	return points
+}
+
+func assetCoordinates(asset immich.Asset) (latitude float64, longitude float64, ok bool) {
+	if asset.ExifInfo != nil && asset.ExifInfo.Latitude != nil && asset.ExifInfo.Longitude != nil {
+		return *asset.ExifInfo.Latitude, *asset.ExifInfo.Longitude, true
+	}
+	if asset.Latitude != nil && asset.Longitude != nil {
+		return *asset.Latitude, *asset.Longitude, true
+	}
+	return 0, 0, false
 }
 
 func groupDate(asset immich.Asset) (label string, sortKey string, ok bool) {

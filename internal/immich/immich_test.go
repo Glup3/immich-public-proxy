@@ -96,6 +96,8 @@ func TestFetchSharedLinkPasswordRequired(t *testing.T) {
 }
 
 func TestFetchSharedLinkDecodesExifDateFields(t *testing.T) {
+	lat := 48.2082
+	lng := 16.3738
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(SharedLink{
@@ -106,10 +108,14 @@ func TestFetchSharedLinkDecodesExifDateFields(t *testing.T) {
 				Type:          AssetTypeImage,
 				FileCreatedAt: "2024-02-01T00:00:00Z",
 				LocalDateTime: "2024-01-31T20:00:00-04:00",
+				Latitude:      &lat,
+				Longitude:     &lng,
 				ExifInfo: &ExifInfo{
 					LocalDateTime:    "2024-01-31T20:00:00-04:00",
 					DateTimeOriginal: "2024-01-31T20:00:00-04:00",
 					TimeZone:         "-04:00",
+					Latitude:         &lat,
+					Longitude:        &lng,
 				},
 			}},
 		})
@@ -131,7 +137,10 @@ func TestFetchSharedLinkDecodesExifDateFields(t *testing.T) {
 	if asset.LocalDateTime != "2024-01-31T20:00:00-04:00" {
 		t.Fatalf("unexpected asset localDateTime: %q", asset.LocalDateTime)
 	}
-	if asset.ExifInfo == nil || asset.ExifInfo.LocalDateTime != "2024-01-31T20:00:00-04:00" || asset.ExifInfo.DateTimeOriginal != "2024-01-31T20:00:00-04:00" || asset.ExifInfo.TimeZone != "-04:00" {
+	if asset.Latitude == nil || *asset.Latitude != lat || asset.Longitude == nil || *asset.Longitude != lng {
+		t.Fatalf("unexpected asset coordinates: lat=%v lng=%v", asset.Latitude, asset.Longitude)
+	}
+	if asset.ExifInfo == nil || asset.ExifInfo.LocalDateTime != "2024-01-31T20:00:00-04:00" || asset.ExifInfo.DateTimeOriginal != "2024-01-31T20:00:00-04:00" || asset.ExifInfo.TimeZone != "-04:00" || asset.ExifInfo.Latitude == nil || *asset.ExifInfo.Latitude != lat || asset.ExifInfo.Longitude == nil || *asset.ExifInfo.Longitude != lng {
 		t.Fatalf("unexpected exif info: %#v", asset.ExifInfo)
 	}
 }
