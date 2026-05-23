@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/glup3/immich-public-proxy/internal/types"
 )
 
 func TestBuildURLOmitsEmptyAndEncodes(t *testing.T) {
@@ -28,7 +26,7 @@ func TestValidationHelpers(t *testing.T) {
 	if !IsID("123e4567-e89b-12d3-a456-426614174000") || IsID("not-an-id") {
 		t.Fatal("id validation mismatch")
 	}
-	if !IsImageSize(string(types.ImageSizeOriginal)) || IsImageSize("large") {
+	if !IsImageSize(string(ImageSizeOriginal)) || IsImageSize("large") {
 		t.Fatal("image size validation mismatch")
 	}
 }
@@ -38,21 +36,21 @@ func TestFetchSharedLinkFiltersAndSortsAlbum(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/shared-links/me":
-			_ = json.NewEncoder(w).Encode(types.SharedLink{
+			_ = json.NewEncoder(w).Encode(SharedLink{
 				Key:  "share-key",
-				Type: types.AlbumTypeAlbum,
-				Album: &types.SharedLinkAlbum{
+				Type: AlbumTypeAlbum,
+				Album: &SharedLinkAlbum{
 					ID:    "album-id",
 					Order: "asc",
 				},
 			})
 		case "/api/albums/album-id":
-			_ = json.NewEncoder(w).Encode(types.Album{
+			_ = json.NewEncoder(w).Encode(Album{
 				ID: "album-id",
-				Assets: []types.Asset{
-					{ID: "b", Type: types.AssetTypeImage, FileCreatedAt: "2024-02-01T00:00:00Z"},
-					{ID: "trashed", Type: types.AssetTypeImage, IsTrashed: true},
-					{ID: "a", Type: types.AssetTypeImage, FileCreatedAt: "2024-01-01T00:00:00Z"},
+				Assets: []Asset{
+					{ID: "b", Type: AssetTypeImage, FileCreatedAt: "2024-02-01T00:00:00Z"},
+					{ID: "trashed", Type: AssetTypeImage, IsTrashed: true},
+					{ID: "a", Type: AssetTypeImage, FileCreatedAt: "2024-01-01T00:00:00Z"},
 				},
 			})
 		default:
@@ -62,11 +60,11 @@ func TestFetchSharedLinkFiltersAndSortsAlbum(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client(), nil, nil)
-	link, access, err := client.FetchSharedLink(context.Background(), "share-key", "pw", types.KeyTypeKey)
+	link, access, err := client.FetchSharedLink(context.Background(), "share-key", "pw", KeyTypeKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if access != types.ShareAccessGranted {
+	if access != ShareAccessGranted {
 		t.Fatalf("expected granted access, got %v", access)
 	}
 	if len(link.Assets) != 2 {
@@ -89,11 +87,11 @@ func TestFetchSharedLinkPasswordRequired(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client(), nil, nil)
-	_, access, err := client.FetchSharedLink(context.Background(), "share-key", "", types.KeyTypeKey)
+	_, access, err := client.FetchSharedLink(context.Background(), "share-key", "", KeyTypeKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if access != types.ShareAccessPasswordRequired {
+	if access != ShareAccessPasswordRequired {
 		t.Fatalf("expected password required, got %v", access)
 	}
 }

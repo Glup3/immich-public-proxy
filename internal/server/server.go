@@ -21,7 +21,13 @@ import (
 	"github.com/glup3/immich-public-proxy/internal/render"
 	"github.com/glup3/immich-public-proxy/internal/sanitize"
 	"github.com/glup3/immich-public-proxy/internal/session"
-	"github.com/glup3/immich-public-proxy/internal/types"
+)
+
+type shareMode string
+
+const (
+	shareModeView     shareMode = ""
+	shareModeDownload shareMode = "download"
 )
 
 type Options struct {
@@ -141,13 +147,13 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 	s.config.AddResponseHeaders(w.Header())
 	shareType := chi.URLParam(r, "shareType")
 	key := chi.URLParam(r, "key")
-	mode := types.ShareModeView
+	mode := shareModeView
 	if strings.HasSuffix(r.URL.Path, "/download") {
-		mode = types.ShareModeDownload
+		mode = shareModeDownload
 	}
 
 	keyType := immich.KeyTypeFromShare(shareType)
-	if keyType == types.KeyTypeSlug && !s.config.IPP.AllowSlugLinks {
+	if keyType == immich.KeyTypeSlug && !s.config.IPP.AllowSlugLinks {
 		s.invalid.Respond(w, http.StatusNotFound, "slug links are disabled")
 		return
 	}
@@ -163,20 +169,20 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 		s.invalid.Respond(w, http.StatusNotFound, "invalid request")
 		return
 	}
-	if access == types.ShareAccessInvalid {
+	if access == immich.ShareAccessInvalid {
 		s.invalid.Respond(w, http.StatusNotFound, "invalid request")
 		return
 	}
 
-	invalidPassword := access == types.ShareAccessPasswordRequired && password != ""
+	invalidPassword := access == immich.ShareAccessPasswordRequired && password != ""
 	if invalidPassword {
 		s.logger.Info("invalid password", "key", key)
 		_ = s.sessions.ClearKey(w, r, key)
 	}
-	if access == types.ShareAccessPasswordRequired || password != "" {
+	if access == immich.ShareAccessPasswordRequired || password != "" {
 		setNoStoreHeaders(w.Header())
 	}
-	if access == types.ShareAccessPasswordRequired {
+	if access == immich.ShareAccessPasswordRequired {
 		if invalidPassword {
 			w.WriteHeader(http.StatusUnauthorized)
 		}
@@ -192,7 +198,7 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if mode == types.ShareModeDownload && render.CanDownload(s.config, &link) {
+	if mode == shareModeDownload && render.CanDownload(s.config, &link) {
 		if err := s.downloadAll(r.Context(), w, &link); err != nil {
 			s.logger.Error("download all", "key", key, "error", err)
 			s.invalid.Respond(w, http.StatusNotFound, "download failed")
@@ -202,8 +208,8 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 	if len(link.Assets) == 1 {
 		s.logger.Info("serving link", "key", key)
 		asset := link.Assets[0]
-		if asset.Type == types.AssetTypeImage && !s.config.IPP.SingleImageGallery && password == "" {
-			s.serveAsset(w, r, asset, types.ImageSizePreview)
+		if asset.Type == immich.AssetTypeImage && !s.config.IPP.SingleImageGallery && password == "" {
+			s.serveAsset(w, r, asset, immich.ImageSizePreview)
 			return
 		}
 		openItem := 0
@@ -265,17 +271,17 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	password := s.sessions.Password(r, key)
-	link, access, err := s.client.FetchSharedLink(r.Context(), key, password, types.KeyTypeKey)
+	link, access, err := s.client.FetchSharedLink(r.Context(), key, password, immich.KeyTypeKey)
 	if err != nil {
 		s.logger.Error("fetch shared link for asset", "key", key, "error", err)
 		s.invalid.Respond(w, http.StatusNotFound, "invalid share link")
 		return
 	}
-	if access == types.ShareAccessPasswordRequired {
+	if access == immich.ShareAccessPasswordRequired {
 		http.Redirect(w, r, "/share/"+key, http.StatusFound)
 		return
 	}
-	if access == types.ShareAccessInvalid {
+	if access == immich.ShareAccessInvalid {
 		s.invalid.Respond(w, http.StatusNotFound, "invalid share link")
 		return
 	}
@@ -286,14 +292,14 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if assetType == "video" {
-		asset.Type = types.AssetTypeVideo
+		asset.Type = immich.AssetTypeVideo
 	} else {
-		asset.Type = types.AssetTypeImage
+		asset.Type = immich.AssetTypeImage
 	}
-	s.serveAsset(w, r, asset, types.ImageSize(size))
+	s.serveAsset(w, r, asset, immich.ImageSize(size))
 }
 
-func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request, asset types.Asset, size types.ImageSize) {
+func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request, asset immich.Asset, size immich.ImageSize) {
 	resp, err := s.client.StreamAsset(r.Context(), asset, size, r.Header.Get("Range"), s.config.IPP.DownloadOriginalPhoto)
 	if err != nil {
 		s.logger.Error("proxy asset", "asset_id", asset.ID, "error", err)
@@ -302,7 +308,7 @@ func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request, asset types.
 	}
 	defer resp.Body.Close()
 
-	if size == types.ImageSizeOriginal && asset.OriginalFileName != "" && s.config.IPP.DownloadOriginalPhoto {
+	if size == immich.ImageSizeOriginal && asset.OriginalFileName != "" && s.config.IPP.DownloadOriginalPhoto {
 		w.Header().Set("Content-Disposition", `attachment; filename="`+render.Filename(s.config, asset)+`"`)
 	}
 	copyHeaders(w.Header(), resp.Header, []string{
@@ -313,14 +319,14 @@ func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request, asset types.
 		"Cache-Control",
 		"Content-Range",
 	})
-	if asset.Type == types.AssetTypeVideo {
+	if asset.Type == immich.AssetTypeVideo {
 		w.Header().Set("Accept-Ranges", "bytes")
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
 }
 
-func (s *Server) downloadAll(ctx context.Context, w http.ResponseWriter, share *types.SharedLink) error {
+func (s *Server) downloadAll(ctx context.Context, w http.ResponseWriter, share *immich.SharedLink) error {
 	w.Header().Set("Content-Type", "application/zip")
 	filename := sanitize.Filename(render.Title(share))
 	if filename == "" {
@@ -430,11 +436,11 @@ func copyHeaders(dst, src http.Header, keys []string) {
 	}
 }
 
-func findAsset(assets []types.Asset, id string) (types.Asset, bool) {
+func findAsset(assets []immich.Asset, id string) (immich.Asset, bool) {
 	for _, asset := range assets {
 		if asset.ID == id {
 			return asset, true
 		}
 	}
-	return types.Asset{}, false
+	return immich.Asset{}, false
 }

@@ -15,7 +15,6 @@ import (
 	"github.com/glup3/immich-public-proxy/internal/config"
 	"github.com/glup3/immich-public-proxy/internal/immich"
 	"github.com/glup3/immich-public-proxy/internal/session"
-	"github.com/glup3/immich-public-proxy/internal/types"
 )
 
 const testAssetID = "123e4567-e89b-12d3-a456-426614174000"
@@ -94,12 +93,12 @@ func TestVideoProxyPreservesUpstreamPartialResponse(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.URL.Path == "/api/shared-links/me":
-			_ = json.NewEncoder(w).Encode(types.SharedLink{
+			_ = json.NewEncoder(w).Encode(immich.SharedLink{
 				Key:  "share-key",
-				Type: types.AlbumTypeIndividual,
-				Assets: []types.Asset{{
+				Type: immich.AlbumTypeIndividual,
+				Assets: []immich.Asset{{
 					ID:               testAssetID,
-					Type:             types.AssetTypeVideo,
+					Type:             immich.AssetTypeVideo,
 					OriginalFileName: "video.mp4",
 				}},
 			})
@@ -196,23 +195,23 @@ func sharedLinkServer(t *testing.T, assetCount int) *httptest.Server {
 		switch {
 		case r.URL.Path == "/api/shared-links/me":
 			w.Header().Set("Content-Type", "application/json")
-			assets := []types.Asset{{
+			assets := []immich.Asset{{
 				ID:               testAssetID,
-				Type:             types.AssetTypeImage,
+				Type:             immich.AssetTypeImage,
 				OriginalFileName: "photo.jpg",
 				OriginalMimeType: "image/jpeg",
 			}}
 			if assetCount > 1 {
-				assets = append(assets, types.Asset{
+				assets = append(assets, immich.Asset{
 					ID:               "123e4567-e89b-12d3-a456-426614174001",
-					Type:             types.AssetTypeImage,
+					Type:             immich.AssetTypeImage,
 					OriginalFileName: "photo2.jpg",
 					OriginalMimeType: "image/jpeg",
 				})
 			}
-			_ = json.NewEncoder(w).Encode(types.SharedLink{
+			_ = json.NewEncoder(w).Encode(immich.SharedLink{
 				Key:           "share-key",
-				Type:          types.AlbumTypeIndividual,
+				Type:          immich.AlbumTypeIndividual,
 				Description:   "Gallery title",
 				AllowDownload: true,
 				Assets:        assets,

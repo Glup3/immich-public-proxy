@@ -1,4 +1,4 @@
-package types
+package immich
 
 import "time"
 
@@ -29,13 +29,6 @@ const (
 	ImageSizeThumbnail ImageSize = "thumbnail"
 	ImageSizePreview   ImageSize = "preview"
 	ImageSizeOriginal  ImageSize = "original"
-)
-
-type ShareMode string
-
-const (
-	ShareModeView     ShareMode = ""
-	ShareModeDownload ShareMode = "download"
 )
 
 type ShareAccess int
@@ -86,19 +79,4 @@ type SharedLink struct {
 	Password      string           `json:"password,omitempty"`
 	Album         *SharedLinkAlbum `json:"album,omitempty"`
 	ExpiresAt     *time.Time       `json:"expiresAt"`
-}
-
-type ShareRequest struct {
-	Key      string
-	KeyType  KeyType
-	Mode     ShareMode
-	Password string
-}
-
-type AssetRequest struct {
-	ShareKey  string
-	AssetID   string
-	AssetType AssetType
-	Size      ImageSize
-	Range     string
 }

@@ -14,8 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/glup3/immich-public-proxy/internal/types"
 )
 
 type Client struct {
@@ -79,9 +77,9 @@ func (c *Client) Accessible(ctx context.Context) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-func (c *Client) FetchSharedLink(ctx context.Context, key, password string, keyType types.KeyType) (types.SharedLink, types.ShareAccess, error) {
+func (c *Client) FetchSharedLink(ctx context.Context, key, password string, keyType KeyType) (SharedLink, ShareAccess, error) {
 	if keyType == "" {
-		keyType = types.KeyTypeKey
+		keyType = KeyTypeKey
 	}
 	requestURL := c.BuildURL(c.APIURL()+"/shared-links/me", map[string]string{
 		string(keyType): key,
@@ -89,14 +87,14 @@ func (c *Client) FetchSharedLink(ctx context.Context, key, password string, keyT
 	})
 	resp, err := c.get(ctx, requestURL)
 	if err != nil {
-		return types.SharedLink{}, types.ShareAccessInvalid, err
+		return SharedLink{}, ShareAccessInvalid, err
 	}
 	defer resp.Body.Close()
 
 	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
 	if !strings.Contains(contentType, "application/json") {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return types.SharedLink{}, types.ShareAccessInvalid, fmt.Errorf("unexpected immich content type %q for key %s: %s", contentType, key, string(body))
+		return SharedLink{}, ShareAccessInvalid, fmt.Errorf("unexpected immich content type %q for key %s: %s", contentType, key, string(body))
 	}
 
 	var message struct {
@@ -104,7 +102,7 @@ func (c *Client) FetchSharedLink(ctx context.Context, key, password string, keyT
 	}
 	var raw json.RawMessage
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return types.SharedLink{}, types.ShareAccessInvalid, fmt.Errorf("decode shared link response: %w", err)
+		return SharedLink{}, ShareAccessInvalid, fmt.Errorf("decode shared link response: %w", err)
 	}
 	if len(raw) > 0 {
 		_ = json.Unmarshal(raw, &message)
@@ -112,39 +110,39 @@ func (c *Client) FetchSharedLink(ctx context.Context, key, password string, keyT
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		if message.Message == "Invalid share key" || message.Message == "Invalid share slug" {
-			return types.SharedLink{}, types.ShareAccessInvalid, nil
+			return SharedLink{}, ShareAccessInvalid, nil
 		}
-		return types.SharedLink{}, types.ShareAccessPasswordRequired, nil
+		return SharedLink{}, ShareAccessPasswordRequired, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return types.SharedLink{}, types.ShareAccessInvalid, fmt.Errorf("unexpected immich shared link status %d", resp.StatusCode)
+		return SharedLink{}, ShareAccessInvalid, fmt.Errorf("unexpected immich shared link status %d", resp.StatusCode)
 	}
 
-	var link types.SharedLink
+	var link SharedLink
 	if err := json.Unmarshal(raw, &link); err != nil {
-		return types.SharedLink{}, types.ShareAccessInvalid, fmt.Errorf("decode shared link: %w", err)
+		return SharedLink{}, ShareAccessInvalid, fmt.Errorf("decode shared link: %w", err)
 	}
 	link.KeyType = keyType
 	link.Password = password
 
-	if link.Type == types.AlbumTypeAlbum && link.Album != nil {
+	if link.Type == AlbumTypeAlbum && link.Album != nil {
 		album, err := c.fetchAlbum(ctx, key, password, keyType, link.Album.ID)
 		if err != nil {
-			return types.SharedLink{}, types.ShareAccessInvalid, err
+			return SharedLink{}, ShareAccessInvalid, err
 		}
 		link.Assets = album.Assets
 	}
 
 	if link.ExpiresAt != nil && link.ExpiresAt.Before(c.now()) {
-		return types.SharedLink{}, types.ShareAccessInvalid, nil
+		return SharedLink{}, ShareAccessInvalid, nil
 	}
 
 	link.Assets = normalizeAssets(link.Assets, key, keyType, password)
 	sortAssets(link)
-	return link, types.ShareAccessGranted, nil
+	return link, ShareAccessGranted, nil
 }
 
-func (c *Client) StreamAsset(ctx context.Context, asset types.Asset, size types.ImageSize, rangeHeader string, downloadOriginal bool) (*http.Response, error) {
+func (c *Client) StreamAsset(ctx context.Context, asset Asset, size ImageSize, rangeHeader string, downloadOriginal bool) (*http.Response, error) {
 	path, params, headers, err := c.assetRequest(asset, size, rangeHeader, downloadOriginal)
 	if err != nil {
 		return nil, err
@@ -161,16 +159,16 @@ func (c *Client) StreamAsset(ctx context.Context, asset types.Asset, size types.
 	return resp, nil
 }
 
-func (c *Client) DownloadAsset(ctx context.Context, asset types.Asset, original bool) (*http.Response, error) {
-	size := types.ImageSizePreview
+func (c *Client) DownloadAsset(ctx context.Context, asset Asset, original bool) (*http.Response, error) {
+	size := ImageSizePreview
 	if original {
-		size = types.ImageSizeOriginal
+		size = ImageSizeOriginal
 	}
 	return c.StreamAsset(ctx, asset, size, "", original)
 }
 
-func (c *Client) GetVideoContentType(ctx context.Context, asset types.Asset) (string, error) {
-	resp, err := c.StreamAsset(ctx, asset, types.ImageSizePreview, "", false)
+func (c *Client) GetVideoContentType(ctx context.Context, asset Asset) (string, error) {
+	resp, err := c.StreamAsset(ctx, asset, ImageSizePreview, "", false)
 	if err != nil {
 		return "", err
 	}
@@ -190,33 +188,33 @@ func (c *Client) get(ctx context.Context, requestURL string) (*http.Response, er
 	return resp, nil
 }
 
-func (c *Client) fetchAlbum(ctx context.Context, key, password string, keyType types.KeyType, albumID string) (types.Album, error) {
+func (c *Client) fetchAlbum(ctx context.Context, key, password string, keyType KeyType, albumID string) (Album, error) {
 	requestURL := c.BuildURL(c.APIURL()+"/albums/"+url.PathEscape(albumID), map[string]string{
 		string(keyType): key,
 		"password":      password,
 	})
 	resp, err := c.get(ctx, requestURL)
 	if err != nil {
-		return types.Album{}, fmt.Errorf("fetch album %s: %w", albumID, err)
+		return Album{}, fmt.Errorf("fetch album %s: %w", albumID, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return types.Album{}, fmt.Errorf("unexpected album status %d", resp.StatusCode)
+		return Album{}, fmt.Errorf("unexpected album status %d", resp.StatusCode)
 	}
-	var album types.Album
+	var album Album
 	if err := json.NewDecoder(resp.Body).Decode(&album); err != nil {
-		return types.Album{}, fmt.Errorf("decode album %s: %w", albumID, err)
+		return Album{}, fmt.Errorf("decode album %s: %w", albumID, err)
 	}
 	if album.ID == "" {
-		return types.Album{}, errors.New("missing album id")
+		return Album{}, errors.New("missing album id")
 	}
 	return album, nil
 }
 
-func (c *Client) assetRequest(asset types.Asset, size types.ImageSize, rangeHeader string, downloadOriginal bool) (string, map[string]string, http.Header, error) {
+func (c *Client) assetRequest(asset Asset, size ImageSize, rangeHeader string, downloadOriginal bool) (string, map[string]string, http.Header, error) {
 	keyType := asset.KeyType
 	if keyType == "" {
-		keyType = types.KeyTypeKey
+		keyType = KeyTypeKey
 	}
 	params := map[string]string{
 		string(keyType): asset.Key,
@@ -225,24 +223,24 @@ func (c *Client) assetRequest(asset types.Asset, size types.ImageSize, rangeHead
 	headers := http.Header{}
 
 	switch asset.Type {
-	case types.AssetTypeVideo:
+	case AssetTypeVideo:
 		path := "/assets/" + url.PathEscape(asset.ID) + "/video/playback"
 		if normalizedRange, ok := normalizeRange(rangeHeader); ok {
 			headers.Set("Range", normalizedRange)
 		}
 		return path, params, headers, nil
-	case types.AssetTypeImage:
+	case AssetTypeImage:
 		switch ValidateImageSize(size) {
-		case types.ImageSizeOriginal:
+		case ImageSizeOriginal:
 			if downloadOriginal {
 				return "/assets/" + url.PathEscape(asset.ID) + "/original", params, headers, nil
 			}
 			params["size"] = "preview"
 			return "/assets/" + url.PathEscape(asset.ID) + "/thumbnail", params, headers, nil
-		case types.ImageSizePreview:
+		case ImageSizePreview:
 			params["size"] = "preview"
 			return "/assets/" + url.PathEscape(asset.ID) + "/thumbnail", params, headers, nil
-		case types.ImageSizeThumbnail:
+		case ImageSizeThumbnail:
 			return "/assets/" + url.PathEscape(asset.ID) + "/thumbnail", params, headers, nil
 		default:
 			return "", nil, nil, fmt.Errorf("unsupported image size %q", size)
@@ -252,8 +250,8 @@ func (c *Client) assetRequest(asset types.Asset, size types.ImageSize, rangeHead
 	}
 }
 
-func normalizeAssets(assets []types.Asset, key string, keyType types.KeyType, password string) []types.Asset {
-	filtered := make([]types.Asset, 0, len(assets))
+func normalizeAssets(assets []Asset, key string, keyType KeyType, password string) []Asset {
+	filtered := make([]Asset, 0, len(assets))
 	for _, asset := range assets {
 		if asset.IsTrashed {
 			continue
@@ -266,7 +264,7 @@ func normalizeAssets(assets []types.Asset, key string, keyType types.KeyType, pa
 	return filtered
 }
 
-func sortAssets(link types.SharedLink) {
+func sortAssets(link SharedLink) {
 	if link.Album == nil {
 		return
 	}
@@ -290,36 +288,36 @@ func IsKey(key string) bool {
 	return keyRe.MatchString(key)
 }
 
-func ValidateImageSize(size types.ImageSize) types.ImageSize {
+func ValidateImageSize(size ImageSize) ImageSize {
 	switch size {
-	case types.ImageSizeThumbnail, types.ImageSizePreview, types.ImageSizeOriginal:
+	case ImageSizeThumbnail, ImageSizePreview, ImageSizeOriginal:
 		return size
 	default:
-		return types.ImageSizePreview
+		return ImageSizePreview
 	}
 }
 
 func IsImageSize(size string) bool {
-	switch types.ImageSize(size) {
-	case types.ImageSizeThumbnail, types.ImageSizePreview, types.ImageSizeOriginal:
+	switch ImageSize(size) {
+	case ImageSizeThumbnail, ImageSizePreview, ImageSizeOriginal:
 		return true
 	default:
 		return false
 	}
 }
 
-func PreviewImageSize(asset types.Asset) types.ImageSize {
+func PreviewImageSize(asset Asset) ImageSize {
 	if asset.OriginalMimeType == "image/gif" {
-		return types.ImageSizeOriginal
+		return ImageSizeOriginal
 	}
-	return types.ImageSizePreview
+	return ImageSizePreview
 }
 
-func KeyTypeFromShare(shareType string) types.KeyType {
+func KeyTypeFromShare(shareType string) KeyType {
 	if shareType == "s" {
-		return types.KeyTypeSlug
+		return KeyTypeSlug
 	}
-	return types.KeyTypeKey
+	return KeyTypeKey
 }
 
 func normalizeRange(raw string) (string, bool) {

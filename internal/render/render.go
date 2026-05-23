@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/glup3/immich-public-proxy/internal/config"
+	"github.com/glup3/immich-public-proxy/internal/immich"
 	"github.com/glup3/immich-public-proxy/internal/sanitize"
-	"github.com/glup3/immich-public-proxy/internal/types"
 )
 
 type Renderer struct {
@@ -69,7 +69,7 @@ func (r *Renderer) Password(w http.ResponseWriter, key string, notifyInvalidPass
 	})
 }
 
-func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *types.SharedLink, openItem int, showDownload bool) error {
+func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immich.SharedLink, openItem int, showDownload bool) error {
 	items := make([]GalleryItem, 0, len(share.Assets))
 	for _, asset := range share.Assets {
 		items = append(items, r.galleryItem(share, asset))
@@ -108,9 +108,9 @@ func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *type
 	return r.templates.ExecuteTemplate(w, "gallery.html", data)
 }
 
-func (r *Renderer) galleryItem(share *types.SharedLink, asset types.Asset) GalleryItem {
+func (r *Renderer) galleryItem(share *immich.SharedLink, asset immich.Asset) GalleryItem {
 	var videoJSON, downloadURL string
-	if asset.Type == types.AssetTypeVideo {
+	if asset.Type == immich.AssetTypeVideo {
 		mimeType := asset.OriginalMimeType
 		if mimeType == "" {
 			mimeType = "video/mp4"
@@ -132,10 +132,10 @@ func (r *Renderer) galleryItem(share *types.SharedLink, asset types.Asset) Galle
 		downloadURL = videoURL(share.Key, asset.ID)
 	}
 	if r.config.IPP.DownloadOriginalPhoto {
-		downloadURL = photoURL(share.Key, asset.ID, types.ImageSizeOriginal)
+		downloadURL = photoURL(share.Key, asset.ID, immich.ImageSizeOriginal)
 	}
 
-	thumbnailURL := photoURL(share.Key, asset.ID, types.ImageSizeThumbnail)
+	thumbnailURL := photoURL(share.Key, asset.ID, immich.ImageSizeThumbnail)
 	previewURL := photoURL(share.Key, asset.ID, previewImageSize(asset))
 	description := ""
 	if r.config.IPP.ShowMetadata.Description && asset.ExifInfo != nil {
@@ -184,7 +184,7 @@ func (r *Renderer) galleryItem(share *types.SharedLink, asset types.Asset) Galle
 	}
 }
 
-func Title(share *types.SharedLink) string {
+func Title(share *immich.SharedLink) string {
 	if share.Description != "" {
 		return share.Description
 	}
@@ -194,14 +194,14 @@ func Title(share *types.SharedLink) string {
 	return "Gallery"
 }
 
-func Description(share *types.SharedLink) string {
+func Description(share *immich.SharedLink) string {
 	if share.Album != nil {
 		return share.Album.Description
 	}
 	return ""
 }
 
-func Filename(cfg config.Config, asset types.Asset) string {
+func Filename(cfg config.Config, asset immich.Asset) string {
 	extension := filepath.Ext(asset.OriginalFileName)
 	switch cfg.IPP.DownloadedFilename {
 	case config.DownloadedFilenameAssetID:
@@ -220,7 +220,7 @@ func Filename(cfg config.Config, asset types.Asset) string {
 	}
 }
 
-func CanDownload(cfg config.Config, share *types.SharedLink) bool {
+func CanDownload(cfg config.Config, share *immich.SharedLink) bool {
 	switch cfg.IPP.AllowDownloadAll {
 	case config.DownloadAllDisabled:
 		return false
@@ -256,14 +256,14 @@ func (r *Renderer) resolvePublicBaseURL(req *http.Request) string {
 	return scheme + "://" + req.Host
 }
 
-func previewImageSize(asset types.Asset) types.ImageSize {
+func previewImageSize(asset immich.Asset) immich.ImageSize {
 	if asset.OriginalMimeType == "image/gif" {
-		return types.ImageSizeOriginal
+		return immich.ImageSizeOriginal
 	}
-	return types.ImageSizePreview
+	return immich.ImageSizePreview
 }
 
-func photoURL(key, id string, size types.ImageSize) string {
+func photoURL(key, id string, size immich.ImageSize) string {
 	parts := []string{"", "share", "photo", key, id}
 	if size != "" {
 		parts = append(parts, string(size))
