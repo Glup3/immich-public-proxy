@@ -14,6 +14,7 @@ class LGallery {
     // Create the lightGallery instance
     this.element = document.getElementById('lightgallery')
     this.lightGallery = lightGallery(this.element, Object.assign({
+      selector: 'a',
       plugins: [lgZoom, lgThumbnail, lgVideo, lgFullscreen, lgHash],
       speed: 500,
       /*

@@ -94,3 +94,44 @@ func TestFetchSharedLinkPasswordRequired(t *testing.T) {
 		t.Fatalf("expected password required, got %v", access)
 	}
 }
+
+func TestFetchSharedLinkDecodesExifDateFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(SharedLink{
+			Key:  "share-key",
+			Type: AlbumTypeIndividual,
+			Assets: []Asset{{
+				ID:            "asset-id",
+				Type:          AssetTypeImage,
+				FileCreatedAt: "2024-02-01T00:00:00Z",
+				LocalDateTime: "2024-01-31T20:00:00-04:00",
+				ExifInfo: &ExifInfo{
+					LocalDateTime:    "2024-01-31T20:00:00-04:00",
+					DateTimeOriginal: "2024-01-31T20:00:00-04:00",
+					TimeZone:         "-04:00",
+				},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client(), nil, nil)
+	link, access, err := client.FetchSharedLink(context.Background(), "share-key", "", KeyTypeKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if access != ShareAccessGranted {
+		t.Fatalf("expected granted access, got %v", access)
+	}
+	if len(link.Assets) != 1 {
+		t.Fatalf("expected 1 asset, got %d", len(link.Assets))
+	}
+	asset := link.Assets[0]
+	if asset.LocalDateTime != "2024-01-31T20:00:00-04:00" {
+		t.Fatalf("unexpected asset localDateTime: %q", asset.LocalDateTime)
+	}
+	if asset.ExifInfo == nil || asset.ExifInfo.LocalDateTime != "2024-01-31T20:00:00-04:00" || asset.ExifInfo.DateTimeOriginal != "2024-01-31T20:00:00-04:00" || asset.ExifInfo.TimeZone != "-04:00" {
+		t.Fatalf("unexpected exif info: %#v", asset.ExifInfo)
+	}
+}

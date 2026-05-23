@@ -38,7 +38,14 @@
     </div>
 {{ end }}
 <div id="lightgallery">
-    {{ range .InitialItems }}{{ .HTML }}
+    {{ range .Groups }}
+        <section class="gallery-group">
+            <h2>{{ .Title }}</h2>
+            <div class="gallery-group-items">
+                {{ range .Items }}{{ .HTML }}
+                {{ end }}
+            </div>
+        </section>
     {{ end }}
 </div>
 {{ if .HasMore }}<div id="loading-spinner"><span class="loader"></span></div>{{ end }}

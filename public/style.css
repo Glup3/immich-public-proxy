@@ -2,6 +2,13 @@ html {
     background: #191919;
 }
 
+#lightgallery {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 28px 20px;
+}
+
 #lightgallery a {
     position: relative;
     display: inline-block;
@@ -16,7 +23,34 @@ html {
     margin: 4px;
 }
 
+.gallery-group {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+.gallery-group h2 {
+    margin: 8px 4px 10px;
+    color: white;
+    font-family: system-ui, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, Helvetica, Arial, "Helvetica Neue", sans-serif;
+    font-size: 12pt;
+    font-weight: 600;
+}
+
+.gallery-group-items {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+
 @media (max-width: 800px) {
+    #lightgallery {
+        display: block;
+    }
+
+    .gallery-group {
+        margin: 0 0 28px;
+    }
+
     #lightgallery a {
         width: calc(100vw / 3 - 10px);
         height: calc(100vw / 3 - 10px);

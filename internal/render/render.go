@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/glup3/immich-public-proxy/internal/config"
 	"github.com/glup3/immich-public-proxy/internal/immich"
@@ -39,9 +40,14 @@ type GalleryItem struct {
 	PreviewURL   string        `json:"previewUrl"`
 }
 
+type GalleryGroup struct {
+	Title string
+	Items []GalleryItem
+}
+
 type GalleryPageData struct {
 	Items         []GalleryItem
-	InitialItems  []GalleryItem
+	Groups        []GalleryGroup
 	ItemsJSON     template.JS
 	OpenItem      int
 	Title         string
@@ -82,6 +88,7 @@ func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immi
 	for _, asset := range share.Assets {
 		items = append(items, r.galleryItem(share, asset))
 	}
+	groups := buildGalleryGroups(share.Assets, items)
 
 	itemsJSON, err := json.Marshal(struct {
 		LGConfig json.RawMessage `json:"lgConfig"`
@@ -102,7 +109,7 @@ func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immi
 	}
 	data := GalleryPageData{
 		Items:         items,
-		InitialItems:  firstN(items, 50),
+		Groups:        groups,
 		ItemsJSON:     template.JS(itemsJSON),
 		OpenItem:      openItem,
 		Title:         Title(share),
@@ -111,7 +118,7 @@ func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immi
 		Path:          "/share/" + share.Key,
 		ShowDownload:  showDownload,
 		ShowTitle:     r.config.IPP.ShowGalleryTitle,
-		HasMore:       len(items) > 50,
+		HasMore:       false,
 	}
 	return r.templates.ExecuteTemplate(w, "gallery.html", data)
 }
@@ -243,18 +250,84 @@ func CanDownload(cfg config.Config, share *immich.SharedLink) bool {
 	}
 }
 
-func firstN(items []GalleryItem, n int) []GalleryItem {
-	if len(items) <= n {
-		return items
-	}
-	return items[:n]
-}
-
 func optionalOpenItem(openItem int) *int {
 	if openItem > 0 {
 		return &openItem
 	}
 	return nil
+}
+
+func buildGalleryGroups(assets []immich.Asset, items []GalleryItem) []GalleryGroup {
+	groups := make([]GalleryGroup, 0)
+	groupIndex := make(map[string]int)
+	undatedItems := make([]GalleryItem, 0)
+
+	for i, asset := range assets {
+		item := items[i]
+		label, _, ok := groupDate(asset)
+		if !ok {
+			undatedItems = append(undatedItems, item)
+			continue
+		}
+		idx, exists := groupIndex[label]
+		if !exists {
+			idx = len(groups)
+			groupIndex[label] = idx
+			groups = append(groups, GalleryGroup{Title: label})
+		}
+		groups[idx].Items = append(groups[idx].Items, item)
+	}
+
+	if len(undatedItems) > 0 {
+		groups = append(groups, GalleryGroup{
+			Title: "Undated",
+			Items: undatedItems,
+		})
+	}
+
+	return groups
+}
+
+func groupDate(asset immich.Asset) (label string, sortKey string, ok bool) {
+	candidates := []string{}
+	if asset.ExifInfo != nil {
+		candidates = append(candidates, asset.ExifInfo.LocalDateTime, asset.ExifInfo.DateTimeOriginal)
+	}
+	candidates = append(candidates, asset.LocalDateTime, asset.FileCreatedAt)
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		t, ok := parseGroupTime(candidate)
+		if !ok {
+			continue
+		}
+		day := t.Format("2006-01-02")
+		return day, day, true
+	}
+
+	return "", "", false
+}
+
+func parseGroupTime(value string) (time.Time, bool) {
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05.000",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	}
+
+	for _, layout := range layouts {
+		t, err := time.Parse(layout, value)
+		if err == nil {
+			return t, true
+		}
+	}
+
+	return time.Time{}, false
 }
 
 func (r *Renderer) resolvePublicBaseURL(req *http.Request) string {
