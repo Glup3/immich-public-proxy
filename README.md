@@ -134,7 +134,7 @@ All incoming data is validated and sanitised, and anything unexpected is simply 
 
 There are some additional configuration options you can change, for example the way the gallery is set up.
 
-1. Make a copy of [config.json](https://github.com/alangrainger/immich-public-proxy/blob/main/app/config.json) in the same folder as your `docker-compose.yml`.
+1. Make a copy of [config.json](https://github.com/alangrainger/immich-public-proxy/blob/main/config.json) in the same folder as your `docker-compose.yml`.
 
 2. Pass the config to your docker container by adding a volume like this:
 
