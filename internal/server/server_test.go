@@ -166,6 +166,33 @@ func TestUnlockRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestInvalidResponseUsesConfiguredStatus(t *testing.T) {
+	cfg := config.Default()
+	cfg.IPP.CustomInvalidResponse = config.InvalidResponseMode{StatusCode: http.StatusGone}
+
+	app := newTestApp(t, cfg, nil)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/share/invalid/key", nil))
+	if rec.Code != http.StatusGone {
+		t.Fatalf("expected 410, got %d", rec.Code)
+	}
+}
+
+func TestInvalidResponseUsesConfiguredRedirect(t *testing.T) {
+	cfg := config.Default()
+	cfg.IPP.CustomInvalidResponse = config.InvalidResponseMode{RedirectURL: "https://example.com"}
+
+	app := newTestApp(t, cfg, nil)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/share/invalid/key", nil))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", rec.Code)
+	}
+	if location := rec.Header().Get("Location"); location != "https://example.com" {
+		t.Fatalf("expected redirect location, got %q", location)
+	}
+}
+
 func newTestApp(t *testing.T, cfg config.Config, upstream *httptest.Server) *Server {
 	t.Helper()
 	t.Chdir("../..")

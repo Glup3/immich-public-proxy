@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,7 +18,6 @@ import (
 
 	"github.com/glup3/immich-public-proxy/internal/config"
 	"github.com/glup3/immich-public-proxy/internal/immich"
-	"github.com/glup3/immich-public-proxy/internal/invalid"
 	"github.com/glup3/immich-public-proxy/internal/render"
 	"github.com/glup3/immich-public-proxy/internal/sanitize"
 	"github.com/glup3/immich-public-proxy/internal/session"
@@ -43,7 +43,6 @@ type Server struct {
 	client   *immich.Client
 	renderer *render.Renderer
 	sessions *session.Manager
-	invalid  invalid.Handler
 	router   chi.Router
 	logger   *slog.Logger
 }
@@ -67,7 +66,6 @@ func New(options Options) (*Server, error) {
 		client:   options.Client,
 		renderer: renderer,
 		sessions: options.Sessions,
-		invalid:  invalid.New(options.Config.IPP.CustomInvalidResponse, options.Logger),
 		router:   chi.NewRouter(),
 		logger:   options.Logger,
 	}
@@ -154,11 +152,11 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 
 	keyType := immich.KeyTypeFromShare(shareType)
 	if keyType == immich.KeyTypeSlug && !s.config.IPP.AllowSlugLinks {
-		s.invalid.Respond(w, http.StatusNotFound, "slug links are disabled")
+		s.respondInvalid(w, http.StatusNotFound, "slug links are disabled")
 		return
 	}
 	if !immich.IsKey(key) {
-		s.invalid.Respond(w, http.StatusNotFound, "wrong key format "+key)
+		s.respondInvalid(w, http.StatusNotFound, "wrong key format "+key)
 		return
 	}
 
@@ -166,11 +164,11 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 	link, access, err := s.client.FetchSharedLink(r.Context(), key, password, keyType)
 	if err != nil {
 		s.logger.Error("fetch shared link", "key", key, "key_type", keyType, "error", err)
-		s.invalid.Respond(w, http.StatusNotFound, "invalid request")
+		s.respondInvalid(w, http.StatusNotFound, "invalid request")
 		return
 	}
 	if access == immich.ShareAccessInvalid {
-		s.invalid.Respond(w, http.StatusNotFound, "invalid request")
+		s.respondInvalid(w, http.StatusNotFound, "invalid request")
 		return
 	}
 
@@ -201,7 +199,7 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 	if mode == shareModeDownload && render.CanDownload(s.config, &link) {
 		if err := s.downloadAll(r.Context(), w, &link); err != nil {
 			s.logger.Error("download all", "key", key, "error", err)
-			s.invalid.Respond(w, http.StatusNotFound, "download failed")
+			s.respondInvalid(w, http.StatusNotFound, "download failed")
 		}
 		return
 	}
@@ -262,11 +260,11 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 	size := chi.URLParam(r, "size")
 
 	if !immich.IsKey(key) || !immich.IsID(id) {
-		s.invalid.Respond(w, http.StatusNotFound, "invalid key or ID for "+r.URL.Path)
+		s.respondInvalid(w, http.StatusNotFound, "invalid key or ID for "+r.URL.Path)
 		return
 	}
 	if size != "" && !immich.IsImageSize(size) {
-		s.invalid.Respond(w, http.StatusNotFound, "invalid size parameter "+r.URL.Path)
+		s.respondInvalid(w, http.StatusNotFound, "invalid size parameter "+r.URL.Path)
 		return
 	}
 
@@ -274,7 +272,7 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 	link, access, err := s.client.FetchSharedLink(r.Context(), key, password, immich.KeyTypeKey)
 	if err != nil {
 		s.logger.Error("fetch shared link for asset", "key", key, "error", err)
-		s.invalid.Respond(w, http.StatusNotFound, "invalid share link")
+		s.respondInvalid(w, http.StatusNotFound, "invalid share link")
 		return
 	}
 	if access == immich.ShareAccessPasswordRequired {
@@ -282,13 +280,13 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if access == immich.ShareAccessInvalid {
-		s.invalid.Respond(w, http.StatusNotFound, "invalid share link")
+		s.respondInvalid(w, http.StatusNotFound, "invalid share link")
 		return
 	}
 
 	asset, ok := findAsset(link.Assets, id)
 	if !ok {
-		s.invalid.Respond(w, http.StatusNotFound, "asset not found in share")
+		s.respondInvalid(w, http.StatusNotFound, "asset not found in share")
 		return
 	}
 	if assetType == "video" {
@@ -303,7 +301,7 @@ func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request, asset immich
 	resp, err := s.client.StreamAsset(r.Context(), asset, size, r.Header.Get("Range"), s.config.IPP.DownloadOriginalPhoto)
 	if err != nil {
 		s.logger.Error("proxy asset", "asset_id", asset.ID, "error", err)
-		s.invalid.Respond(w, http.StatusNotFound, "failed response from immich for asset "+asset.ID)
+		s.respondInvalid(w, http.StatusNotFound, "failed response from immich for asset "+asset.ID)
 		return
 	}
 	defer resp.Body.Close()
@@ -372,7 +370,7 @@ func (s *Server) home(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
-	s.invalid.Respond(w, http.StatusNotFound, "invalid route "+r.URL.Path)
+	s.respondInvalid(w, http.StatusNotFound, "invalid route "+r.URL.Path)
 }
 
 func (s *Server) static(prefix string) http.HandlerFunc {
@@ -443,4 +441,40 @@ func findAsset(assets []immich.Asset, id string) (immich.Asset, bool) {
 		}
 	}
 	return immich.Asset{}, false
+}
+
+func (s *Server) respondInvalid(w http.ResponseWriter, defaultStatus int, message string) {
+	mode := s.config.IPP.CustomInvalidResponse
+	switch {
+	case mode.RedirectURL != "":
+		s.logger.Info("redirect invalid request", "location", mode.RedirectURL, "message", message)
+		w.Header().Set("Location", mode.RedirectURL)
+		w.WriteHeader(http.StatusFound)
+	case mode.Drop:
+		s.dropConnection(w, defaultStatus, message)
+	case mode.StatusCode > 0:
+		s.logger.Info("return invalid response", "status", mode.StatusCode, "message", message)
+		w.WriteHeader(mode.StatusCode)
+	default:
+		s.logger.Info("return invalid response", "status", defaultStatus, "message", message)
+		w.WriteHeader(defaultStatus)
+	}
+}
+
+func (s *Server) dropConnection(w http.ResponseWriter, fallbackStatus int, message string) {
+	s.logger.Info("drop invalid request", "message", message)
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		w.WriteHeader(fallbackStatus)
+		return
+	}
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		w.WriteHeader(fallbackStatus)
+		return
+	}
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.SetLinger(0)
+	}
+	_ = conn.Close()
 }
