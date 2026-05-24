@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
 	"net/http"
 	"path/filepath"
 	"regexp"
@@ -35,9 +34,15 @@ type PasswordPageData struct {
 }
 
 type GalleryItem struct {
+	AssetID      string `json:"assetId"`
+	Description  string `json:"description"`
+	DownloadName string `json:"downloadName"`
+	DownloadURL  string `json:"downloadUrl"`
 	HTML         string `json:"html"`
+	IsVideo      bool   `json:"isVideo"`
 	ThumbnailURL string `json:"thumbnailUrl"`
 	PreviewURL   string `json:"previewUrl"`
+	VideoJSON    string `json:"video"`
 }
 
 type GalleryGroup struct {
@@ -169,51 +174,25 @@ func (r *Renderer) galleryItem(share *immich.SharedLink, asset immich.Asset) Gal
 	if r.config.IPP.ShowMetadata.Description && asset.ExifInfo != nil {
 		description = asset.ExifInfo.Description
 	}
-	descriptionEsc := html.EscapeString(description)
 
-	var b strings.Builder
-	if videoJSON != "" {
-		b.WriteString(`<a data-video='`)
-		b.WriteString(html.EscapeString(videoJSON))
-		b.WriteString(`'`)
-	} else {
-		b.WriteString(`<a href="`)
-		b.WriteString(html.EscapeString(previewURL))
-		b.WriteString(`"`)
-	}
-	if downloadURL != "" {
-		b.WriteString(` data-download-url="`)
-		b.WriteString(html.EscapeString(downloadURL))
-		b.WriteString(`"`)
-	}
-	if description != "" {
-		b.WriteString(` data-sub-html='<p>`)
-		b.WriteString(descriptionEsc)
-		b.WriteString(`</p>'`)
-	}
-	b.WriteString(` data-download="`)
-	b.WriteString(html.EscapeString(Filename(r.config, asset)))
-	b.WriteString(`" data-slide-name="`)
-	b.WriteString(html.EscapeString(asset.ID))
-	b.WriteString(`"><img alt="`)
-	b.WriteString(descriptionEsc)
-	b.WriteString(`" loading="lazy" src="`)
-	b.WriteString(html.EscapeString(thumbnailURL))
-	b.WriteString(`" onerror="this.closest('a').classList.add('thumb-error')"/>`)
-	if videoJSON != "" {
-		b.WriteString(`<div class="play-icon"></div>`)
-	}
-	b.WriteString(`</a>`)
-
-	return GalleryItem{
-		HTML:         b.String(),
+	item := GalleryItem{
+		AssetID:      asset.ID,
+		Description:  description,
+		DownloadName: Filename(r.config, asset),
+		DownloadURL:  downloadURL,
+		IsVideo:      videoJSON != "",
 		ThumbnailURL: thumbnailURL,
 		PreviewURL:   previewURL,
+		VideoJSON:    videoJSON,
 	}
-}
 
-func rawHTML(value string) templ.Component {
-	return templ.Raw(value)
+	renderedHTML, err := templ.ToGoHTML(context.Background(), galleryItemMarkup(item))
+	if err != nil {
+		panic(fmt.Errorf("render gallery item %s: %w", asset.ID, err))
+	}
+	item.HTML = string(renderedHTML)
+
+	return item
 }
 
 func Title(share *immich.SharedLink) string {

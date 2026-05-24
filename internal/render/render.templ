@@ -101,6 +101,49 @@ templ passwordPage(data PasswordPageData) {
 	</html>
 }
 
+templ galleryItemMarkup(item GalleryItem) {
+	if item.IsVideo {
+		<a
+			data-video={ item.VideoJSON }
+			if item.DownloadURL != "" {
+				data-download-url={ item.DownloadURL }
+			}
+			if item.Description != "" {
+				data-sub-html={ "<p>" + item.Description + "</p>" }
+			}
+			data-download={ item.DownloadName }
+			data-slide-name={ item.AssetID }
+		>
+			<img
+				alt={ item.Description }
+				loading="lazy"
+				src={ item.ThumbnailURL }
+				onerror="this.closest('a').classList.add('thumb-error')"
+			/>
+			<div class="play-icon"></div>
+		</a>
+	} else {
+		<a
+			href={ item.PreviewURL }
+			if item.DownloadURL != "" {
+				data-download-url={ item.DownloadURL }
+			}
+			if item.Description != "" {
+				data-sub-html={ "<p>" + item.Description + "</p>" }
+			}
+			data-download={ item.DownloadName }
+			data-slide-name={ item.AssetID }
+		>
+			<img
+				alt={ item.Description }
+				loading="lazy"
+				src={ item.ThumbnailURL }
+				onerror="this.closest('a').classList.add('thumb-error')"
+			/>
+		</a>
+	}
+}
+
 templ galleryPage(data GalleryPageData) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -159,7 +202,7 @@ templ galleryPage(data GalleryPageData) {
 						<h2>{ group.Title }</h2>
 						<div class="gallery-group-items">
 							for _, item := range group.Items {
-								@rawHTML(item.HTML)
+								@galleryItemMarkup(item)
 							}
 						</div>
 					</section>
