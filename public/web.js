@@ -7,6 +7,41 @@ class LGallery {
   element
   index = PER_PAGE
 
+  bootstrapFromDOM () {
+    const element = document.getElementById('lightgallery')
+    if (!element) {
+      return
+    }
+
+    const payloadText = element.dataset.gallery
+    if (!payloadText) {
+      return
+    }
+
+    let payload
+    try {
+      payload = JSON.parse(payloadText)
+    } catch (e) {
+      return
+    }
+
+    this.init(payload)
+
+    const mapPointsText = element.dataset.mapPoints
+    if (mapPointsText) {
+      try {
+        this.initMap(JSON.parse(mapPointsText))
+      } catch (e) {}
+    }
+
+    if (payload.openItem > 0) {
+      const thumbs = document.querySelectorAll('#lightgallery a')
+      if (thumbs.length >= payload.openItem) {
+        thumbs[payload.openItem - 1].click()
+      }
+    }
+  }
+
   /**
    * Create a lightGallery instance and populate it with the first page of gallery items
    */
@@ -105,3 +140,6 @@ class LGallery {
   }
 }
 const lgallery = new LGallery()
+window.addEventListener('load', () => {
+  lgallery.bootstrapFromDOM()
+})

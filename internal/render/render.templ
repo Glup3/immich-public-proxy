@@ -1,0 +1,183 @@
+package render
+
+templ homePage() {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+			<title></title>
+			<link rel="icon" href="/share/static/favicon.ico" type="image/x-icon"/>
+			<style>
+				html, body {
+					margin: 0;
+					height: 100vh;
+					background: #262626;
+				}
+				body {
+					display: flex;
+					justify-content: center;
+					align-items: center;
+				}
+				img {
+					max-width: 280px;
+					height: 280px;
+					opacity: 0.3;
+				}
+			</style>
+		</head>
+		<body>
+			<div class="container">
+				<a href="https://github.com/glup3/immich-public-proxy"><img src="/share/static/images/ipp.svg" alt=""/></a>
+			</div>
+		</body>
+	</html>
+}
+
+templ passwordPage(data PasswordPageData) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+			<title>Password required</title>
+			<link rel="icon" href="/share/static/favicon.ico" type="image/x-icon"/>
+			<link type="text/css" rel="stylesheet" href="/share/static/lg/lightgallery-bundle.min.css"/>
+			<link type="text/css" rel="stylesheet" href="/share/static/pico.min.css"/>
+		</head>
+		<body>
+			<header></header>
+			<main class="container">
+				<div class="grid">
+					<div></div>
+					<div>
+						<form id="unlock" method="post">
+							<input type="password" name="password" placeholder="Password" aria-label="Password" required autofocus/>
+							if data.NotifyInvalidPassword {
+								<small>Invalid password</small>
+							}
+							<input type="hidden" name="key" value={ data.Key }/>
+							<button type="submit">
+								<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+									stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+									class="lucide lucide-lock-open">
+									<rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect>
+									<path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+								</svg>
+								Unlock
+							</button>
+						</form>
+					</div>
+					<div></div>
+				</div>
+			</main>
+			<script src="/share/static/web.js"></script>
+			<script>
+				async function submitForm(formElement) {
+					const formData = new FormData(formElement)
+					try {
+						const res = await fetch('/share/unlock', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify(Object.fromEntries(formData.entries()))
+						})
+						if (res.status === 200) {
+							window.location.reload()
+						}
+					} catch (e) {}
+				}
+
+				document.getElementById('unlock')
+					.addEventListener('submit', function(e) {
+						e.preventDefault()
+						submitForm(this)
+					})
+			</script>
+			<script src="/share/static/lg/lightgallery.min.js"></script>
+			<script src="/share/static/lg/lg-fullscreen.min.js"></script>
+			<script src="/share/static/lg/lg-thumbnail.min.js"></script>
+			<script src="/share/static/lg/lg-video.min.js"></script>
+			<script src="/share/static/lg/lg-zoom.min.js"></script>
+			<script src="/share/static/lg/lg-hash.min.js"></script>
+		</body>
+	</html>
+}
+
+templ galleryPage(data GalleryPageData) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ data.Title }</title>
+			<meta property="og:title" content={ data.Title }/>
+			<meta name="twitter:title" content={ data.Title }/>
+			if data.Description != "" {
+				<meta name="description" content={ data.Description }/>
+				<meta property="og:description" content={ data.Description }/>
+				<meta property="twitter:description" content={ data.Description }/>
+			}
+			if len(data.Items) > 0 {
+				<meta property="og:image" content={ data.PublicBaseURL + data.Items[0].PreviewURL }/>
+				<meta name="twitter:image" content={ data.PublicBaseURL + data.Items[0].PreviewURL }/>
+				<meta name="twitter:card" content="summary_large_image"/>
+			}
+			if data.ShowMap {
+				<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+			}
+			<link rel="icon" href="/share/static/favicon.ico" type="image/x-icon"/>
+			<link type="text/css" rel="stylesheet" href="/share/static/style.css"/>
+			<link type="text/css" rel="stylesheet" href="/share/static/lg/lightgallery-bundle.min.css"/>
+		</head>
+		<body>
+			<div id="header">
+				if data.ShowTitle {
+					<h1>{ data.Title }</h1>
+				}
+				if data.ShowDownload {
+					<div id="download-all">
+						<a href={ data.Path + "/download" } title="Download all"><img src="/share/static/images/download-all.svg" height="24" width="24" alt="Download all"/></a>
+					</div>
+				}
+			</div>
+			if data.Description != "" {
+				<div id="album-description">
+					<h2>{ data.Description }</h2>
+				</div>
+			}
+			if data.ShowMap {
+				<section id="gallery-map-section">
+					<div id="gallery-map"></div>
+				</section>
+			}
+			<div
+				id="lightgallery"
+				data-gallery={ data.ItemsJSON }
+				if data.ShowMap {
+					data-map-points={ data.MapPointsJSON }
+				}
+			>
+				for _, group := range data.Groups {
+					<section class="gallery-group">
+						<h2>{ group.Title }</h2>
+						<div class="gallery-group-items">
+							for _, item := range group.Items {
+								@rawHTML(item.HTML)
+							}
+						</div>
+					</section>
+				}
+			</div>
+			if data.HasMore {
+				<div id="loading-spinner"><span class="loader"></span></div>
+			}
+			<script src="/share/static/web.js"></script>
+			<script src="/share/static/lg/lightgallery.min.js"></script>
+			<script src="/share/static/lg/lg-fullscreen.min.js"></script>
+			<script src="/share/static/lg/lg-thumbnail.min.js"></script>
+			<script src="/share/static/lg/lg-video.min.js"></script>
+			<script src="/share/static/lg/lg-zoom.min.js"></script>
+			<script src="/share/static/lg/lg-hash.min.js"></script>
+			if data.ShowMap {
+				<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+			}
+		</body>
+	</html>
+}

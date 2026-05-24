@@ -3,10 +3,9 @@ package render
 import (
 	"bytes"
 	"encoding/json"
+	"html"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"runtime"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -167,22 +166,6 @@ func TestBuildMapPointsUsesExifCoordinatesBeforeAssetCoordinates(t *testing.T) {
 func TestGalleryRendersDateGroupsAndFlatItemsJSON(t *testing.T) {
 	t.Parallel()
 
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("failed to resolve test file path")
-	}
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(repoRoot); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(wd)
-	})
-
 	cfg := config.Default()
 	renderer, err := New(cfg, "https://example.test")
 	if err != nil {
@@ -211,20 +194,12 @@ func TestGalleryRendersDateGroupsAndFlatItemsJSON(t *testing.T) {
 		}
 	}
 
-	start := strings.Index(body, "lgallery.init(")
-	if start == -1 {
-		t.Fatalf("gallery init payload not found: %s", body)
-	}
-	start += len("lgallery.init(")
-	end := strings.Index(body[start:], ")\n")
-	if end == -1 {
-		t.Fatalf("gallery init payload end not found: %s", body)
-	}
+	payloadJSON := extractAttributeValue(t, body, "data-gallery")
 
 	var payload struct {
 		Items []GalleryItem `json:"items"`
 	}
-	if err := json.NewDecoder(bytes.NewBufferString(body[start : start+end])).Decode(&payload); err != nil {
+	if err := json.NewDecoder(bytes.NewBufferString(payloadJSON)).Decode(&payload); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
 	if len(payload.Items) != 3 {
@@ -234,22 +209,6 @@ func TestGalleryRendersDateGroupsAndFlatItemsJSON(t *testing.T) {
 
 func TestGalleryRendersMapWhenCoordinatesPresent(t *testing.T) {
 	t.Parallel()
-
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("failed to resolve test file path")
-	}
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(repoRoot); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(wd)
-	})
 
 	lat := 48.2082
 	lng := 16.3738
@@ -279,9 +238,21 @@ func TestGalleryRendersMapWhenCoordinatesPresent(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	for _, want := range []string{"gallery-map", "leaflet.css", "initMap([", "48.2082"} {
+	for _, want := range []string{"gallery-map", "leaflet.css", "data-map-points=", "48.2082"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected body to contain %q: %s", want, body)
 		}
 	}
+}
+
+func extractAttributeValue(t *testing.T, body string, attr string) string {
+	t.Helper()
+
+	re := regexp.MustCompile(attr + `="([^"]+)"`)
+	match := re.FindStringSubmatch(body)
+	if len(match) != 2 {
+		t.Fatalf("%s not found: %s", attr, body)
+	}
+
+	return html.UnescapeString(match[1])
 }

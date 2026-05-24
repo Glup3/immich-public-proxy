@@ -1,16 +1,17 @@
 package render
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
-	"html/template"
 	"net/http"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/a-h/templ"
 	"github.com/glup3/immich-public-proxy/internal/config"
 	"github.com/glup3/immich-public-proxy/internal/immich"
 )
@@ -25,7 +26,6 @@ var (
 
 type Renderer struct {
 	config        config.Config
-	templates     *template.Template
 	publicBaseURL string
 }
 
@@ -35,9 +35,9 @@ type PasswordPageData struct {
 }
 
 type GalleryItem struct {
-	HTML         template.HTML `json:"html"`
-	ThumbnailURL string        `json:"thumbnailUrl"`
-	PreviewURL   string        `json:"previewUrl"`
+	HTML         string `json:"html"`
+	ThumbnailURL string `json:"thumbnailUrl"`
+	PreviewURL   string `json:"previewUrl"`
 }
 
 type GalleryGroup struct {
@@ -57,8 +57,8 @@ type MapPoint struct {
 type GalleryPageData struct {
 	Items         []GalleryItem
 	Groups        []GalleryGroup
-	ItemsJSON     template.JS
-	MapPointsJSON template.JS
+	ItemsJSON     string
+	MapPointsJSON string
 	OpenItem      int
 	Title         string
 	Description   string
@@ -71,27 +71,22 @@ type GalleryPageData struct {
 }
 
 func New(cfg config.Config, publicBaseURL string) (*Renderer, error) {
-	tmpl, err := template.ParseGlob("templates/*.html")
-	if err != nil {
-		return nil, err
-	}
 	return &Renderer{
 		config:        cfg,
-		templates:     tmpl,
 		publicBaseURL: strings.TrimRight(publicBaseURL, "/"),
 	}, nil
 }
 
 func (r *Renderer) Home(w http.ResponseWriter) error {
 	r.config.AddResponseHeaders(w.Header())
-	return r.templates.ExecuteTemplate(w, "home.html", nil)
+	return homePage().Render(context.Background(), w)
 }
 
 func (r *Renderer) Password(w http.ResponseWriter, key string, notifyInvalidPassword bool) error {
-	return r.templates.ExecuteTemplate(w, "password.html", PasswordPageData{
+	return passwordPage(PasswordPageData{
 		Key:                   key,
 		NotifyInvalidPassword: notifyInvalidPassword,
-	})
+	}).Render(context.Background(), w)
 }
 
 func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immich.SharedLink, openItem int, showDownload bool) error {
@@ -126,8 +121,8 @@ func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immi
 	data := GalleryPageData{
 		Items:         items,
 		Groups:        groups,
-		ItemsJSON:     template.JS(itemsJSON),
-		MapPointsJSON: template.JS(mapPointsJSON),
+		ItemsJSON:     string(itemsJSON),
+		MapPointsJSON: string(mapPointsJSON),
 		OpenItem:      openItem,
 		Title:         Title(share),
 		Description:   description,
@@ -138,7 +133,7 @@ func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immi
 		ShowMap:       len(mapPoints) > 0,
 		HasMore:       false,
 	}
-	return r.templates.ExecuteTemplate(w, "gallery.html", data)
+	return galleryPage(data).Render(req.Context(), w)
 }
 
 func (r *Renderer) galleryItem(share *immich.SharedLink, asset immich.Asset) GalleryItem {
@@ -211,10 +206,14 @@ func (r *Renderer) galleryItem(share *immich.SharedLink, asset immich.Asset) Gal
 	b.WriteString(`</a>`)
 
 	return GalleryItem{
-		HTML:         template.HTML(b.String()),
+		HTML:         b.String(),
 		ThumbnailURL: thumbnailURL,
 		PreviewURL:   previewURL,
 	}
+}
+
+func rawHTML(value string) templ.Component {
+	return templ.Raw(value)
 }
 
 func Title(share *immich.SharedLink) string {
