@@ -1,9 +1,7 @@
 package render
 
 import (
-	"bytes"
 	"encoding/json"
-	"html"
 	"net/http/httptest"
 	"regexp"
 	"strings"
@@ -21,36 +19,12 @@ func TestSanitizeFilename(t *testing.T) {
 		input string
 		want  string
 	}{
-		{
-			name:  "keeps normal filename",
-			input: "photo.jpg",
-			want:  "photo.jpg",
-		},
-		{
-			name:  "removes path separators",
-			input: "../nested/path/photo.jpg",
-			want:  "..nestedpathphoto.jpg",
-		},
-		{
-			name:  "removes control characters",
-			input: "bad\x00name\x1f.jpg",
-			want:  "badname.jpg",
-		},
-		{
-			name:  "removes windows reserved name",
-			input: "con",
-			want:  "",
-		},
-		{
-			name:  "removes trailing windows characters",
-			input: "photo. ",
-			want:  "photo",
-		},
-		{
-			name:  "truncates long names",
-			input: strings.Repeat("a", 300),
-			want:  strings.Repeat("a", 254),
-		},
+		{name: "keeps normal filename", input: "photo.jpg", want: "photo.jpg"},
+		{name: "removes path separators", input: "../nested/path/photo.jpg", want: "..nestedpathphoto.jpg"},
+		{name: "removes control characters", input: "bad\x00name\x1f.jpg", want: "badname.jpg"},
+		{name: "removes windows reserved name", input: "con", want: ""},
+		{name: "removes trailing windows characters", input: "photo. ", want: "photo"},
+		{name: "truncates long names", input: strings.Repeat("a", 300), want: strings.Repeat("a", 254)},
 	}
 
 	for _, tt := range tests {
@@ -63,196 +37,138 @@ func TestSanitizeFilename(t *testing.T) {
 	}
 }
 
-func TestGroupDatePrefersExifLocalDateTime(t *testing.T) {
+func TestAssetDimensionsSwapsExifOrientation(t *testing.T) {
 	t.Parallel()
 
-	label, sortKey, ok := groupDate(immich.Asset{
-		FileCreatedAt: "2024-04-11T10:00:00Z",
+	width, height := assetDimensions(immich.Asset{
 		ExifInfo: &immich.ExifInfo{
-			LocalDateTime: "2024-04-10T23:30:00-05:00",
+			ExifImageWidth:  1200,
+			ExifImageHeight: 800,
+			Orientation:     "6",
 		},
 	})
-	if !ok || label != "2024-04-10" || sortKey != "2024-04-10" {
-		t.Fatalf("unexpected group date: ok=%v label=%q sortKey=%q", ok, label, sortKey)
+	if width != 800 || height != 1200 {
+		t.Fatalf("unexpected dimensions: width=%d height=%d", width, height)
 	}
 }
 
-func TestGroupDateFallsBackToFileCreatedAt(t *testing.T) {
-	t.Parallel()
-
-	label, _, ok := groupDate(immich.Asset{
-		FileCreatedAt: "2024-04-11T10:00:00Z",
-		ExifInfo: &immich.ExifInfo{
-			LocalDateTime: "not-a-date",
-		},
-	})
-	if !ok || label != "2024-04-11" {
-		t.Fatalf("unexpected fallback group date: ok=%v label=%q", ok, label)
-	}
-}
-
-func TestGroupDateUsesDateTimeOriginal(t *testing.T) {
-	t.Parallel()
-
-	label, _, ok := groupDate(immich.Asset{
-		ExifInfo: &immich.ExifInfo{
-			DateTimeOriginal: "2024-03-02T08:15:00Z",
-		},
-	})
-	if !ok || label != "2024-03-02" {
-		t.Fatalf("unexpected exif original date: ok=%v label=%q", ok, label)
-	}
-}
-
-func TestBuildGalleryGroupsPreservesOrderAndAppendsUndated(t *testing.T) {
-	t.Parallel()
-
-	assets := []immich.Asset{
-		{ID: "a", FileCreatedAt: "2024-02-01T00:00:00Z"},
-		{ID: "b"},
-		{ID: "c", FileCreatedAt: "2024-02-01T12:00:00Z"},
-		{ID: "d", FileCreatedAt: "2024-02-02T00:00:00Z"},
-	}
-	items := []GalleryItem{
-		{HTML: "a"},
-		{HTML: "b"},
-		{HTML: "c"},
-		{HTML: "d"},
-	}
-
-	groups := buildGalleryGroups(assets, items)
-	if len(groups) != 3 {
-		t.Fatalf("expected 3 groups, got %d", len(groups))
-	}
-	if groups[0].Title != "2024-02-01" || len(groups[0].Items) != 2 || groups[0].Items[0].HTML != "a" || groups[0].Items[1].HTML != "c" {
-		t.Fatalf("unexpected first group: %#v", groups[0])
-	}
-	if groups[1].Title != "2024-02-02" || len(groups[1].Items) != 1 || groups[1].Items[0].HTML != "d" {
-		t.Fatalf("unexpected second group: %#v", groups[1])
-	}
-	if groups[2].Title != "Undated" || len(groups[2].Items) != 1 || groups[2].Items[0].HTML != "b" {
-		t.Fatalf("unexpected undated group: %#v", groups[2])
-	}
-}
-
-func TestBuildMapPointsUsesExifCoordinatesBeforeAssetCoordinates(t *testing.T) {
-	t.Parallel()
-
-	exifLat := 10.5
-	exifLng := 20.5
-	assetLat := 30.5
-	assetLng := 40.5
-	points := buildMapPoints([]immich.Asset{{
-		ID:        "a",
-		Latitude:  &assetLat,
-		Longitude: &assetLng,
-		ExifInfo: &immich.ExifInfo{
-			Latitude:  &exifLat,
-			Longitude: &exifLng,
-		},
-	}}, []GalleryItem{{
-		ThumbnailURL: "/thumb",
-		PreviewURL:   "/preview",
-	}})
-
-	if len(points) != 1 {
-		t.Fatalf("expected 1 point, got %d", len(points))
-	}
-	if points[0].Latitude != exifLat || points[0].Longitude != exifLng {
-		t.Fatalf("unexpected point coordinates: %#v", points[0])
-	}
-}
-
-func TestGalleryRendersDateGroupsAndFlatItemsJSON(t *testing.T) {
+func TestGalleryRendersPhotoSwipeInitPayload(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.Default()
+	cfg.IPP.AllowDownloadAll = config.DownloadAllAlways
+	cfg.IPP.ShowGalleryTitle = true
+	cfg.IPP.ShowGalleryDescription = true
+	cfg.IPP.ShowMetadata.Description = true
+
 	renderer, err := New(cfg, "https://example.test")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	share := &immich.SharedLink{
-		Key: "share-key",
+		Key:         "share-key",
+		Description: "Gallery title",
+		Album: &immich.SharedLinkAlbum{
+			Description: "Album description",
+		},
 		Assets: []immich.Asset{
-			{ID: "a", Type: immich.AssetTypeImage, FileCreatedAt: "2024-02-01T00:00:00Z"},
-			{ID: "b", Type: immich.AssetTypeImage},
-			{ID: "c", Type: immich.AssetTypeImage, FileCreatedAt: "2024-02-02T00:00:00Z"},
+			{
+				ID:               "a",
+				Type:             immich.AssetTypeImage,
+				OriginalFileName: "photo.jpg",
+				OriginalMimeType: "image/jpeg",
+				FileCreatedAt:    "2024-02-01T00:00:00Z",
+				Thumbhash:        "thumbhash-value",
+				ExifInfo: &immich.ExifInfo{
+					Description:     `<script>alert(1)</script>`,
+					ExifImageWidth:  1200,
+					ExifImageHeight: 800,
+					Orientation:     "6",
+				},
+			},
+			{
+				ID:               "b",
+				Type:             immich.AssetTypeVideo,
+				OriginalFileName: "video.mp4",
+				OriginalMimeType: "video/mp4",
+			},
 		},
 	}
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/share/share-key", nil)
-	if err := renderer.Gallery(rec, req, share, 0, false); err != nil {
+	if err := renderer.Gallery(rec, req, share, 1, true); err != nil {
 		t.Fatal(err)
 	}
 
 	body := rec.Body.String()
-	for _, want := range []string{"2024-02-01", "2024-02-02", "Undated"} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("expected body to contain %q: %s", want, body)
+	for _, expected := range []string{
+		`id="gallery"`,
+		`id="ipp-init"`,
+		`type="module" src="/assets/web.js"`,
+		`/assets/photoswipe/photoswipe.css`,
+		`/assets/photoswipe-overrides.css`,
+		`Album description`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected body to contain %q", expected)
 		}
 	}
+	if strings.Contains(body, "lightgallery") {
+		t.Fatalf("did not expect legacy lightgallery assets: %s", body)
+	}
 
-	payloadJSON := extractAttributeValue(t, body, "data-gallery")
-
+	initJSON := extractScriptJSON(t, body, "ipp-init")
 	var payload struct {
-		Items []GalleryItem `json:"items"`
+		Items          []GalleryItem  `json:"items"`
+		OpenItem       int            `json:"openItem"`
+		LightboxConfig LightboxConfig `json:"lightboxConfig"`
+		GroupByDate    bool           `json:"groupByDate"`
 	}
-	if err := json.NewDecoder(bytes.NewBufferString(payloadJSON)).Decode(&payload); err != nil {
-		t.Fatalf("decode payload: %v", err)
+	if err := json.Unmarshal([]byte(initJSON), &payload); err != nil {
+		t.Fatalf("decode init payload: %v", err)
 	}
-	if len(payload.Items) != 3 {
-		t.Fatalf("expected 3 flat items in payload, got %d", len(payload.Items))
+	if len(payload.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(payload.Items))
+	}
+	if payload.OpenItem != 1 {
+		t.Fatalf("expected openItem 1, got %d", payload.OpenItem)
+	}
+	if !payload.LightboxConfig.ShowDownload || !payload.LightboxConfig.ShowArrows || payload.LightboxConfig.MobileArrows {
+		t.Fatalf("unexpected lightbox config: %#v", payload.LightboxConfig)
+	}
+	if payload.GroupByDate {
+		t.Fatal("expected groupByDate false")
+	}
+
+	image := payload.Items[0]
+	if image.ID != "a" || image.Width != 800 || image.Height != 1200 {
+		t.Fatalf("unexpected image payload: %#v", image)
+	}
+	if image.Thumbhash != "thumbhash-value" {
+		t.Fatalf("expected thumbhash, got %#v", image)
+	}
+	if image.Description != "&lt;script&gt;alert(1)&lt;/script&gt;" {
+		t.Fatalf("expected escaped description, got %q", image.Description)
+	}
+	if image.DownloadURL != "/share/photo/share-key/a/original" {
+		t.Fatalf("unexpected image download URL: %q", image.DownloadURL)
+	}
+
+	video := payload.Items[1]
+	if video.VideoData == "" || video.DownloadURL != "/share/video/share-key/b" {
+		t.Fatalf("unexpected video payload: %#v", video)
 	}
 }
 
-func TestGalleryRendersMapWhenCoordinatesPresent(t *testing.T) {
-	t.Parallel()
-
-	lat := 48.2082
-	lng := 16.3738
-	cfg := config.Default()
-	renderer, err := New(cfg, "https://example.test")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	share := &immich.SharedLink{
-		Key: "share-key",
-		Assets: []immich.Asset{{
-			ID:            "a",
-			Type:          immich.AssetTypeImage,
-			FileCreatedAt: "2024-02-01T00:00:00Z",
-			ExifInfo: &immich.ExifInfo{
-				Latitude:  &lat,
-				Longitude: &lng,
-			},
-		}},
-	}
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/share/share-key", nil)
-	if err := renderer.Gallery(rec, req, share, 0, false); err != nil {
-		t.Fatal(err)
-	}
-
-	body := rec.Body.String()
-	for _, want := range []string{"gallery-map", "leaflet.css", "data-map-points=", "48.2082"} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("expected body to contain %q: %s", want, body)
-		}
-	}
-}
-
-func extractAttributeValue(t *testing.T, body string, attr string) string {
+func extractScriptJSON(t *testing.T, body string, id string) string {
 	t.Helper()
 
-	re := regexp.MustCompile(attr + `="([^"]+)"`)
+	re := regexp.MustCompile(`<script[^>]*id="` + regexp.QuoteMeta(id) + `\"[^>]*>([\s\S]*?)</script>`)
 	match := re.FindStringSubmatch(body)
 	if len(match) != 2 {
-		t.Fatalf("%s not found: %s", attr, body)
+		t.Fatalf("script %q not found in body: %s", id, body)
 	}
-
-	return html.UnescapeString(match[1])
+	return strings.TrimSpace(match[1])
 }

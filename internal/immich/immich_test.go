@@ -110,10 +110,14 @@ func TestFetchSharedLinkDecodesExifDateFields(t *testing.T) {
 				LocalDateTime: "2024-01-31T20:00:00-04:00",
 				Latitude:      &lat,
 				Longitude:     &lng,
+				Thumbhash:     "thumbhash-value",
 				ExifInfo: &ExifInfo{
 					LocalDateTime:    "2024-01-31T20:00:00-04:00",
 					DateTimeOriginal: "2024-01-31T20:00:00-04:00",
 					TimeZone:         "-04:00",
+					ExifImageWidth:   1200,
+					ExifImageHeight:  800,
+					Orientation:      "6",
 					Latitude:         &lat,
 					Longitude:        &lng,
 				},
@@ -140,7 +144,10 @@ func TestFetchSharedLinkDecodesExifDateFields(t *testing.T) {
 	if asset.Latitude == nil || *asset.Latitude != lat || asset.Longitude == nil || *asset.Longitude != lng {
 		t.Fatalf("unexpected asset coordinates: lat=%v lng=%v", asset.Latitude, asset.Longitude)
 	}
-	if asset.ExifInfo == nil || asset.ExifInfo.LocalDateTime != "2024-01-31T20:00:00-04:00" || asset.ExifInfo.DateTimeOriginal != "2024-01-31T20:00:00-04:00" || asset.ExifInfo.TimeZone != "-04:00" || asset.ExifInfo.Latitude == nil || *asset.ExifInfo.Latitude != lat || asset.ExifInfo.Longitude == nil || *asset.ExifInfo.Longitude != lng {
+	if asset.Thumbhash != "thumbhash-value" {
+		t.Fatalf("unexpected thumbhash: %q", asset.Thumbhash)
+	}
+	if asset.ExifInfo == nil || asset.ExifInfo.LocalDateTime != "2024-01-31T20:00:00-04:00" || asset.ExifInfo.DateTimeOriginal != "2024-01-31T20:00:00-04:00" || asset.ExifInfo.TimeZone != "-04:00" || asset.ExifInfo.ExifImageWidth != 1200 || asset.ExifInfo.ExifImageHeight != 800 || asset.ExifInfo.Orientation != "6" || asset.ExifInfo.Latitude == nil || *asset.ExifInfo.Latitude != lat || asset.ExifInfo.Longitude == nil || *asset.ExifInfo.Longitude != lng {
 		t.Fatalf("unexpected exif info: %#v", asset.ExifInfo)
 	}
 }

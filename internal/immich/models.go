@@ -44,6 +44,9 @@ type ExifInfo struct {
 	DateTimeOriginal string   `json:"dateTimeOriginal,omitempty"`
 	LocalDateTime    string   `json:"localDateTime,omitempty"`
 	TimeZone         string   `json:"timeZone,omitempty"`
+	ExifImageWidth   int      `json:"exifImageWidth,omitempty"`
+	ExifImageHeight  int      `json:"exifImageHeight,omitempty"`
+	Orientation      string   `json:"orientation,omitempty"`
 	Latitude         *float64 `json:"latitude,omitempty"`
 	Longitude        *float64 `json:"longitude,omitempty"`
 }
@@ -59,6 +62,7 @@ type Asset struct {
 	LocalDateTime    string    `json:"localDateTime,omitempty"`
 	Latitude         *float64  `json:"latitude,omitempty"`
 	Longitude        *float64  `json:"longitude,omitempty"`
+	Thumbhash        string    `json:"thumbhash,omitempty"`
 	Type             AssetType `json:"type"`
 	IsTrashed        bool      `json:"isTrashed"`
 	Visibility       string    `json:"visibility,omitempty"`

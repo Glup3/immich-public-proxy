@@ -6,7 +6,7 @@ templ homePage() {
 		<head>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
 			<title></title>
-			<link rel="icon" href="/share/static/favicon.ico" type="image/x-icon"/>
+			<link rel="icon" href="/assets/favicon.ico" type="image/x-icon"/>
 			<style>
 				html, body {
 					margin: 0;
@@ -27,7 +27,7 @@ templ homePage() {
 		</head>
 		<body>
 			<div class="container">
-				<a href="https://github.com/glup3/immich-public-proxy"><img src="/share/static/images/ipp.svg" alt=""/></a>
+				<a href="https://github.com/glup3/immich-public-proxy"><img src="/assets/images/ipp.svg" alt=""/></a>
 			</div>
 		</body>
 	</html>
@@ -39,9 +39,9 @@ templ passwordPage(data PasswordPageData) {
 		<head>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
 			<title>Password required</title>
-			<link rel="icon" href="/share/static/favicon.ico" type="image/x-icon"/>
-			<link type="text/css" rel="stylesheet" href="/share/static/lg/lightgallery-bundle.min.css"/>
-			<link type="text/css" rel="stylesheet" href="/share/static/pico.min.css"/>
+			<link rel="icon" href="/assets/favicon.ico" type="image/x-icon"/>
+			<link type="text/css" rel="stylesheet" href="/assets/lg/lightgallery-bundle.min.css"/>
+			<link type="text/css" rel="stylesheet" href="/assets/pico.min.css"/>
 		</head>
 		<body>
 			<header></header>
@@ -69,7 +69,6 @@ templ passwordPage(data PasswordPageData) {
 					<div></div>
 				</div>
 			</main>
-			<script src="/share/static/web.js"></script>
 			<script>
 				async function submitForm(formElement) {
 					const formData = new FormData(formElement)
@@ -91,57 +90,8 @@ templ passwordPage(data PasswordPageData) {
 						submitForm(this)
 					})
 			</script>
-			<script src="/share/static/lg/lightgallery.min.js"></script>
-			<script src="/share/static/lg/lg-fullscreen.min.js"></script>
-			<script src="/share/static/lg/lg-thumbnail.min.js"></script>
-			<script src="/share/static/lg/lg-video.min.js"></script>
-			<script src="/share/static/lg/lg-zoom.min.js"></script>
-			<script src="/share/static/lg/lg-hash.min.js"></script>
 		</body>
 	</html>
-}
-
-templ galleryItemMarkup(item GalleryItem) {
-	if item.IsVideo {
-		<a
-			data-video={ item.VideoJSON }
-			if item.DownloadURL != "" {
-				data-download-url={ item.DownloadURL }
-			}
-			if item.Description != "" {
-				data-sub-html={ "<p>" + item.Description + "</p>" }
-			}
-			data-download={ item.DownloadName }
-			data-slide-name={ item.AssetID }
-		>
-			<img
-				alt={ item.Description }
-				loading="lazy"
-				src={ item.ThumbnailURL }
-				onerror="this.closest('a').classList.add('thumb-error')"
-			/>
-			<div class="play-icon"></div>
-		</a>
-	} else {
-		<a
-			href={ item.PreviewURL }
-			if item.DownloadURL != "" {
-				data-download-url={ item.DownloadURL }
-			}
-			if item.Description != "" {
-				data-sub-html={ "<p>" + item.Description + "</p>" }
-			}
-			data-download={ item.DownloadName }
-			data-slide-name={ item.AssetID }
-		>
-			<img
-				alt={ item.Description }
-				loading="lazy"
-				src={ item.ThumbnailURL }
-				onerror="this.closest('a').classList.add('thumb-error')"
-			/>
-		</a>
-	}
 }
 
 templ galleryPage(data GalleryPageData) {
@@ -157,70 +107,39 @@ templ galleryPage(data GalleryPageData) {
 				<meta property="og:description" content={ data.Description }/>
 				<meta property="twitter:description" content={ data.Description }/>
 			}
-			if len(data.Items) > 0 {
-				<meta property="og:image" content={ data.PublicBaseURL + data.Items[0].PreviewURL }/>
-				<meta name="twitter:image" content={ data.PublicBaseURL + data.Items[0].PreviewURL }/>
+			if data.FirstPreviewURL != "" {
+				<meta property="og:image" content={ data.PublicBaseURL + data.FirstPreviewURL }/>
+				<meta name="twitter:image" content={ data.PublicBaseURL + data.FirstPreviewURL }/>
 				<meta name="twitter:card" content="summary_large_image"/>
 			}
-			if data.ShowMap {
-				<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
-			}
-			<link rel="icon" href="/share/static/favicon.ico" type="image/x-icon"/>
-			<link type="text/css" rel="stylesheet" href="/share/static/style.css"/>
-			<link type="text/css" rel="stylesheet" href="/share/static/lg/lightgallery-bundle.min.css"/>
+			<link rel="icon" href="/assets/favicon.ico" type="image/x-icon"/>
+			<link type="text/css" rel="stylesheet" href="/assets/style.css"/>
+			<link type="text/css" rel="stylesheet" href="/assets/photoswipe/photoswipe.css"/>
+			<link type="text/css" rel="stylesheet" href="/assets/photoswipe-overrides.css"/>
 		</head>
 		<body>
-			<div id="header">
-				if data.ShowTitle {
-					<h1>{ data.Title }</h1>
-				}
-				if data.ShowDownload {
-					<div id="download-all">
-						<a href={ data.Path + "/download" } title="Download all"><img src="/share/static/images/download-all.svg" height="24" width="24" alt="Download all"/></a>
-					</div>
-				}
-			</div>
-			if data.Description != "" {
-				<div id="album-description">
-					<h2>{ data.Description }</h2>
-				</div>
-			}
-			if data.ShowMap {
-				<section id="gallery-map-section">
-					<div id="gallery-map"></div>
-				</section>
-			}
-			<div
-				id="lightgallery"
-				data-gallery={ data.ItemsJSON }
-				if data.ShowMap {
-					data-map-points={ data.MapPointsJSON }
-				}
-			>
-				for _, group := range data.Groups {
-					<section class="gallery-group">
-						<h2>{ group.Title }</h2>
-						<div class="gallery-group-items">
-							for _, item := range group.Items {
-								@galleryItemMarkup(item)
-							}
+			if data.ShowTitle || data.ShowDownload {
+				<header id="header">
+					if data.ShowTitle {
+						<div class="header-text">
+							<h1>{ data.Title }</h1>
 						</div>
-					</section>
-				}
-			</div>
-			if data.HasMore {
-				<div id="loading-spinner"><span class="loader"></span></div>
+					}
+					if data.ShowDownload {
+						<a id="download-all" href={ data.Path + "/download" } title="Download all" aria-label="Download all">
+							<svg viewBox="0 0 24 24" aria-hidden="true">
+								<path fill="currentColor" d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"></path>
+							</svg>
+						</a>
+					}
+				</header>
 			}
-			<script src="/share/static/web.js"></script>
-			<script src="/share/static/lg/lightgallery.min.js"></script>
-			<script src="/share/static/lg/lg-fullscreen.min.js"></script>
-			<script src="/share/static/lg/lg-thumbnail.min.js"></script>
-			<script src="/share/static/lg/lg-video.min.js"></script>
-			<script src="/share/static/lg/lg-zoom.min.js"></script>
-			<script src="/share/static/lg/lg-hash.min.js"></script>
-			if data.ShowMap {
-				<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+			if data.Description != "" {
+				<p id="album-description">{ data.Description }</p>
 			}
+			<div id="gallery"></div>
+			@templ.JSONScript("ipp-init", data.InitData)
+			<script type="module" src="/assets/web.js"></script>
 		</body>
 	</html>
 }

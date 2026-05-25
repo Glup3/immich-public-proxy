@@ -63,7 +63,7 @@ func TestGalleryRendersMetadataAndDownloadLink(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, expected := range []string{"Gallery title", "/share/static/style.css", "/share/share-key/download", "og:image"} {
+	for _, expected := range []string{"Gallery title", "/assets/style.css", "/share/share-key/download", "og:image"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected body to contain %q", expected)
 		}
@@ -195,7 +195,6 @@ func TestInvalidResponseUsesConfiguredRedirect(t *testing.T) {
 
 func newTestApp(t *testing.T, cfg config.Config, upstream *httptest.Server) *Server {
 	t.Helper()
-	t.Chdir("../..")
 	baseURL := "http://127.0.0.1:1"
 	httpClient := http.DefaultClient
 	if upstream != nil {

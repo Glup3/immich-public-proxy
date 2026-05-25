@@ -6,11 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/glup3/immich-public-proxy/internal/immich"
 	"github.com/glup3/immich-public-proxy/internal/render"
 	"github.com/glup3/immich-public-proxy/internal/session"
+	publicassets "github.com/glup3/immich-public-proxy/public"
 )
 
 type shareMode string
@@ -44,6 +44,7 @@ type Server struct {
 	sessions *session.Store
 	router   chi.Router
 	logger   *slog.Logger
+	publicFS fs.FS
 }
 
 func New(options Options) (*Server, error) {
@@ -60,6 +61,10 @@ func New(options Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	publicFS, err := publicassets.Assets()
+	if err != nil {
+		return nil, fmt.Errorf("load embedded public assets: %w", err)
+	}
 	srv := &Server{
 		config:   options.Config,
 		client:   options.Client,
@@ -67,6 +72,7 @@ func New(options Options) (*Server, error) {
 		sessions: options.Sessions,
 		router:   chi.NewRouter(),
 		logger:   options.Logger,
+		publicFS: publicFS,
 	}
 	srv.routes()
 	return srv, nil
@@ -80,7 +86,7 @@ func (s *Server) routes() {
 	s.router.Get("/healthcheck", s.healthcheck)
 	s.router.Get("/share/healthcheck", s.healthcheck)
 
-	s.router.Get("/share/static/*", s.static("/share/static/"))
+	s.router.Get("/assets/*", s.static("/assets/"))
 	s.router.Get("/robots.txt", s.staticRoot)
 	s.router.Get("/favicon.ico", s.staticRoot)
 
@@ -373,35 +379,35 @@ func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) static(prefix string) http.HandlerFunc {
-	fs := http.StripPrefix(prefix, http.FileServer(http.Dir("public")))
+	fileServer := http.StripPrefix(prefix, http.FileServerFS(s.publicFS))
 	return func(w http.ResponseWriter, r *http.Request) {
-		cleanPath := filepath.Clean(strings.TrimPrefix(r.URL.Path, prefix))
-		if cleanPath == "." || strings.HasPrefix(cleanPath, "..") {
+		cleanPath := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, prefix), "/")
+		if cleanPath == "" || !fs.ValidPath(cleanPath) {
 			s.notFound(w, r)
 			return
 		}
-		info, err := os.Stat(filepath.Join("public", cleanPath))
+		info, err := fs.Stat(s.publicFS, cleanPath)
 		if err != nil || info.IsDir() {
 			s.notFound(w, r)
 			return
 		}
 		s.config.AddResponseHeaders(w.Header())
-		fs.ServeHTTP(w, r)
+		fileServer.ServeHTTP(w, r)
 	}
 }
 
 func (s *Server) staticRoot(w http.ResponseWriter, r *http.Request) {
 	s.config.AddResponseHeaders(w.Header())
-	http.FileServer(http.Dir("public")).ServeHTTP(w, r)
+	http.FileServerFS(s.publicFS).ServeHTTP(w, r)
 }
 
 func (s *Server) staticRootOrNotFound(w http.ResponseWriter, r *http.Request) {
-	cleanPath := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
-	if cleanPath == "." || strings.HasPrefix(cleanPath, "..") {
+	cleanPath := strings.TrimPrefix(r.URL.Path, "/")
+	if cleanPath == "" || !fs.ValidPath(cleanPath) {
 		s.notFound(w, r)
 		return
 	}
-	info, err := os.Stat(filepath.Join("public", cleanPath))
+	info, err := fs.Stat(s.publicFS, cleanPath)
 	if err != nil || info.IsDir() {
 		s.notFound(w, r)
 		return
