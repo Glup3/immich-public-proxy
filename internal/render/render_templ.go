@@ -29,7 +29,7 @@ func homePage() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!doctype html><html lang=\"en\"><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0\"><title></title><link rel=\"icon\" href=\"/share/static/favicon.ico\" type=\"image/x-icon\"><style>\n\t\t\t\thtml, body {\n\t\t\t\t\tmargin: 0;\n\t\t\t\t\theight: 100vh;\n\t\t\t\t\tbackground: #262626;\n\t\t\t\t}\n\t\t\t\tbody {\n\t\t\t\t\tdisplay: flex;\n\t\t\t\t\tjustify-content: center;\n\t\t\t\t\talign-items: center;\n\t\t\t\t}\n\t\t\t\timg {\n\t\t\t\t\tmax-width: 280px;\n\t\t\t\t\theight: 280px;\n\t\t\t\t\topacity: 0.3;\n\t\t\t\t}\n\t\t\t</style></head><body><div class=\"container\"><a href=\"https://github.com/glup3/immich-public-proxy\"><img src=\"/share/static/images/ipp.svg\" alt=\"\"></a></div></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!doctype html><html lang=\"en\"><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0\"><title></title><link rel=\"icon\" href=\"/assets/favicon.ico\" type=\"image/x-icon\"><style>\n\t\t\t\thtml, body {\n\t\t\t\t\tmargin: 0;\n\t\t\t\t\theight: 100vh;\n\t\t\t\t\tbackground: #262626;\n\t\t\t\t}\n\t\t\t\tbody {\n\t\t\t\t\tdisplay: flex;\n\t\t\t\t\tjustify-content: center;\n\t\t\t\t\talign-items: center;\n\t\t\t\t}\n\t\t\t\timg {\n\t\t\t\t\tmax-width: 280px;\n\t\t\t\t\theight: 280px;\n\t\t\t\t\topacity: 0.3;\n\t\t\t\t}\n\t\t\t</style></head><body><div class=\"container\"><a href=\"https://github.com/glup3/immich-public-proxy\"><img src=\"/assets/images/ipp.svg\" alt=\"\"></a></div></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -58,7 +58,7 @@ func passwordPage(data PasswordPageData) templ.Component {
 			templ_7745c5c3_Var2 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<!doctype html><html lang=\"en\"><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0\"><title>Password required</title><link rel=\"icon\" href=\"/share/static/favicon.ico\" type=\"image/x-icon\"><link type=\"text/css\" rel=\"stylesheet\" href=\"/share/static/lg/lightgallery-bundle.min.css\"><link type=\"text/css\" rel=\"stylesheet\" href=\"/share/static/pico.min.css\"></head><body><header></header><main class=\"container\"><div class=\"grid\"><div></div><div><form id=\"unlock\" method=\"post\"><input type=\"password\" name=\"password\" placeholder=\"Password\" aria-label=\"Password\" required autofocus> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<!doctype html><html lang=\"en\"><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0\"><title>Password required</title><link rel=\"icon\" href=\"/assets/favicon.ico\" type=\"image/x-icon\"><link type=\"text/css\" rel=\"stylesheet\" href=\"/assets/lg/lightgallery-bundle.min.css\"><link type=\"text/css\" rel=\"stylesheet\" href=\"/assets/pico.min.css\"></head><body><header></header><main class=\"container\"><div class=\"grid\"><div></div><div><form id=\"unlock\" method=\"post\"><input type=\"password\" name=\"password\" placeholder=\"Password\" aria-label=\"Password\" required autofocus> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -230,7 +230,7 @@ func galleryPage(data GalleryPageData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<link rel=\"icon\" href=\"/share/static/favicon.ico\" type=\"image/x-icon\"><link type=\"text/css\" rel=\"stylesheet\" href=\"/share/static/style.css\"><link type=\"text/css\" rel=\"stylesheet\" href=\"/share/static/photoswipe/photoswipe.css\"><link type=\"text/css\" rel=\"stylesheet\" href=\"/share/static/photoswipe-overrides.css\"></head><body>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<link rel=\"icon\" href=\"/assets/favicon.ico\" type=\"image/x-icon\"><link type=\"text/css\" rel=\"stylesheet\" href=\"/assets/style.css\"><link type=\"text/css\" rel=\"stylesheet\" href=\"/assets/photoswipe/photoswipe.css\"><link type=\"text/css\" rel=\"stylesheet\" href=\"/assets/photoswipe-overrides.css\"></head><body>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -309,7 +309,7 @@ func galleryPage(data GalleryPageData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "<script type=\"module\" src=\"/share/static/web.js\"></script></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "<script type=\"module\" src=\"/assets/web.js\"></script></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

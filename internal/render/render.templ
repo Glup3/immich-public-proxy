@@ -6,7 +6,7 @@ templ homePage() {
 		<head>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
 			<title></title>
-			<link rel="icon" href="/share/static/favicon.ico" type="image/x-icon"/>
+			<link rel="icon" href="/assets/favicon.ico" type="image/x-icon"/>
 			<style>
 				html, body {
 					margin: 0;
@@ -27,7 +27,7 @@ templ homePage() {
 		</head>
 		<body>
 			<div class="container">
-				<a href="https://github.com/glup3/immich-public-proxy"><img src="/share/static/images/ipp.svg" alt=""/></a>
+				<a href="https://github.com/glup3/immich-public-proxy"><img src="/assets/images/ipp.svg" alt=""/></a>
 			</div>
 		</body>
 	</html>
@@ -39,9 +39,9 @@ templ passwordPage(data PasswordPageData) {
 		<head>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
 			<title>Password required</title>
-			<link rel="icon" href="/share/static/favicon.ico" type="image/x-icon"/>
-			<link type="text/css" rel="stylesheet" href="/share/static/lg/lightgallery-bundle.min.css"/>
-			<link type="text/css" rel="stylesheet" href="/share/static/pico.min.css"/>
+			<link rel="icon" href="/assets/favicon.ico" type="image/x-icon"/>
+			<link type="text/css" rel="stylesheet" href="/assets/lg/lightgallery-bundle.min.css"/>
+			<link type="text/css" rel="stylesheet" href="/assets/pico.min.css"/>
 		</head>
 		<body>
 			<header></header>
@@ -112,10 +112,10 @@ templ galleryPage(data GalleryPageData) {
 				<meta name="twitter:image" content={ data.PublicBaseURL + data.FirstPreviewURL }/>
 				<meta name="twitter:card" content="summary_large_image"/>
 			}
-			<link rel="icon" href="/share/static/favicon.ico" type="image/x-icon"/>
-			<link type="text/css" rel="stylesheet" href="/share/static/style.css"/>
-			<link type="text/css" rel="stylesheet" href="/share/static/photoswipe/photoswipe.css"/>
-			<link type="text/css" rel="stylesheet" href="/share/static/photoswipe-overrides.css"/>
+			<link rel="icon" href="/assets/favicon.ico" type="image/x-icon"/>
+			<link type="text/css" rel="stylesheet" href="/assets/style.css"/>
+			<link type="text/css" rel="stylesheet" href="/assets/photoswipe/photoswipe.css"/>
+			<link type="text/css" rel="stylesheet" href="/assets/photoswipe-overrides.css"/>
 		</head>
 		<body>
 			if data.ShowTitle || data.ShowDownload {
@@ -139,7 +139,7 @@ templ galleryPage(data GalleryPageData) {
 			}
 			<div id="gallery"></div>
 			@templ.JSONScript("ipp-init", data.InitData)
-			<script type="module" src="/share/static/web.js"></script>
+			<script type="module" src="/assets/web.js"></script>
 		</body>
 	</html>
 }

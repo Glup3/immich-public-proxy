@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "checkJs": true,
+    "baseUrl": ".",
+    "paths": {
+      "/assets/*": [
+        "public/*"
+      ]
+    }
+  },
+  "include": [
+    "public/**/*.js"
+  ]
+}

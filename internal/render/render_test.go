@@ -106,9 +106,9 @@ func TestGalleryRendersPhotoSwipeInitPayload(t *testing.T) {
 	for _, expected := range []string{
 		`id="gallery"`,
 		`id="ipp-init"`,
-		`type="module" src="/share/static/web.js"`,
-		`/share/static/photoswipe/photoswipe.css`,
-		`/share/static/photoswipe-overrides.css`,
+		`type="module" src="/assets/web.js"`,
+		`/assets/photoswipe/photoswipe.css`,
+		`/assets/photoswipe-overrides.css`,
 		`Album description`,
 	} {
 		if !strings.Contains(body, expected) {
