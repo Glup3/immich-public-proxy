@@ -198,15 +198,15 @@ func galleryPage(data GalleryPageData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		if data.InitJSON != "" {
+		if data.FirstPreviewURL != "" {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<meta property=\"og:image\" content=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var11 string
-			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.PublicBaseURL + extractFirstPreviewURL(data.InitJSON))
+			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.PublicBaseURL + data.FirstPreviewURL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/render/render.templ`, Line: 111, Col: 98}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/render/render.templ`, Line: 111, Col: 81}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 			if templ_7745c5c3_Err != nil {
@@ -217,9 +217,9 @@ func galleryPage(data GalleryPageData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var12 string
-			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.PublicBaseURL + extractFirstPreviewURL(data.InitJSON))
+			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.PublicBaseURL + data.FirstPreviewURL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/render/render.templ`, Line: 112, Col: 99}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/render/render.templ`, Line: 112, Col: 82}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
 			if templ_7745c5c3_Err != nil {

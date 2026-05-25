@@ -107,9 +107,9 @@ templ galleryPage(data GalleryPageData) {
 				<meta property="og:description" content={ data.Description }/>
 				<meta property="twitter:description" content={ data.Description }/>
 			}
-			if data.InitJSON != "" {
-				<meta property="og:image" content={ data.PublicBaseURL + extractFirstPreviewURL(data.InitJSON) }/>
-				<meta name="twitter:image" content={ data.PublicBaseURL + extractFirstPreviewURL(data.InitJSON) }/>
+			if data.FirstPreviewURL != "" {
+				<meta property="og:image" content={ data.PublicBaseURL + data.FirstPreviewURL }/>
+				<meta name="twitter:image" content={ data.PublicBaseURL + data.FirstPreviewURL }/>
 				<meta name="twitter:card" content="summary_large_image"/>
 			}
 			<link rel="icon" href="/share/static/favicon.ico" type="image/x-icon"/>

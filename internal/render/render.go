@@ -53,15 +53,22 @@ type LightboxConfig struct {
 	MobileArrows bool `json:"mobileArrows"`
 }
 
+type GalleryInitData struct {
+	Items          []GalleryItem  `json:"items"`
+	OpenItem       *int           `json:"openItem,omitempty"`
+	LightboxConfig LightboxConfig `json:"lightboxConfig"`
+	GroupByDate    bool           `json:"groupByDate"`
+}
+
 type GalleryPageData struct {
-	InitJSON      string
-	InitData      any
-	Title         string
-	Description   string
-	PublicBaseURL string
-	Path          string
-	ShowDownload  bool
-	ShowTitle     bool
+	InitData        GalleryInitData
+	FirstPreviewURL string
+	Title           string
+	Description     string
+	PublicBaseURL   string
+	Path            string
+	ShowDownload    bool
+	ShowTitle       bool
 }
 
 func New(cfg config.Config, publicBaseURL string) (*Renderer, error) {
@@ -94,12 +101,7 @@ func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immi
 		description = Description(share)
 	}
 
-	initJSON, err := json.Marshal(struct {
-		Items          []GalleryItem  `json:"items"`
-		OpenItem       *int           `json:"openItem,omitempty"`
-		LightboxConfig LightboxConfig `json:"lightboxConfig"`
-		GroupByDate    bool           `json:"groupByDate"`
-	}{
+	initData := GalleryInitData{
 		Items:    items,
 		OpenItem: optionalOpenItem(openItem),
 		LightboxConfig: LightboxConfig{
@@ -108,34 +110,20 @@ func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immi
 			MobileArrows: false,
 		},
 		GroupByDate: false,
-	})
-	if err != nil {
+	}
+	if _, err := json.Marshal(initData); err != nil {
 		return fmt.Errorf("marshal gallery payload: %w", err)
 	}
 
 	data := GalleryPageData{
-		InitJSON: string(initJSON),
-		InitData: struct {
-			Items          []GalleryItem  `json:"items"`
-			OpenItem       *int           `json:"openItem,omitempty"`
-			LightboxConfig LightboxConfig `json:"lightboxConfig"`
-			GroupByDate    bool           `json:"groupByDate"`
-		}{
-			Items:    items,
-			OpenItem: optionalOpenItem(openItem),
-			LightboxConfig: LightboxConfig{
-				ShowArrows:   true,
-				ShowDownload: showDownload,
-				MobileArrows: false,
-			},
-			GroupByDate: false,
-		},
-		Title:         Title(share),
-		Description:   description,
-		PublicBaseURL: r.resolvePublicBaseURL(req),
-		Path:          "/share/" + share.Key,
-		ShowDownload:  showDownload,
-		ShowTitle:     r.config.IPP.ShowGalleryTitle,
+		InitData:        initData,
+		FirstPreviewURL: firstPreviewURL(items),
+		Title:           Title(share),
+		Description:     description,
+		PublicBaseURL:   r.resolvePublicBaseURL(req),
+		Path:            "/share/" + share.Key,
+		ShowDownload:    showDownload,
+		ShowTitle:       r.config.IPP.ShowGalleryTitle,
 	}
 	return galleryPage(data).Render(req.Context(), w)
 }
@@ -148,20 +136,34 @@ func (r *Renderer) galleryItem(share *immich.SharedLink, asset immich.Asset) Gal
 		if mimeType == "" {
 			mimeType = "video/mp4"
 		}
-		video, _ := json.Marshal(struct {
-			Source []map[string]string `json:"source"`
-			Attrs  map[string]string   `json:"attributes"`
+		video, err := json.Marshal(struct {
+			Source []struct {
+				Src  string `json:"src"`
+				Type string `json:"type"`
+			} `json:"source"`
+			Attrs struct {
+				PlaysInline string `json:"playsinline"`
+				Controls    string `json:"controls"`
+			} `json:"attributes"`
 		}{
-			Source: []map[string]string{{
-				"src":  videoURL(share.Key, asset.ID),
-				"type": mimeType,
+			Source: []struct {
+				Src  string `json:"src"`
+				Type string `json:"type"`
+			}{{
+				Src:  videoURL(share.Key, asset.ID),
+				Type: mimeType,
 			}},
-			Attrs: map[string]string{
-				"playsinline": "playsinline",
-				"controls":    "controls",
+			Attrs: struct {
+				PlaysInline string `json:"playsinline"`
+				Controls    string `json:"controls"`
+			}{
+				PlaysInline: "playsinline",
+				Controls:    "controls",
 			},
 		})
-		videoData = string(video)
+		if err == nil {
+			videoData = string(video)
+		}
 		downloadURL = videoURL(share.Key, asset.ID)
 	}
 	if asset.Type == immich.AssetTypeImage && r.config.IPP.DownloadOriginalPhoto {
@@ -208,19 +210,11 @@ func Description(share *immich.SharedLink) string {
 	return ""
 }
 
-func extractFirstPreviewURL(initJSON string) string {
-	var payload struct {
-		Items []struct {
-			PreviewURL string `json:"previewUrl"`
-		} `json:"items"`
-	}
-	if err := json.Unmarshal([]byte(initJSON), &payload); err != nil {
+func firstPreviewURL(items []GalleryItem) string {
+	if len(items) == 0 {
 		return ""
 	}
-	if len(payload.Items) == 0 {
-		return ""
-	}
-	return payload.Items[0].PreviewURL
+	return items[0].PreviewURL
 }
 
 func Filename(cfg config.Config, asset immich.Asset) string {
