@@ -79,10 +79,25 @@ type IPPConfig struct {
 	ShowGalleryDescription bool                   `json:"showGalleryDescription"`
 	ShowMetadata           MetadataConfig         `json:"showMetadata"`
 	CustomInvalidResponse  InvalidResponseMode    `json:"customInvalidResponse"`
+	TravelMode             TravelModeConfig       `json:"travelMode"`
 }
 
 type MetadataConfig struct {
 	Description bool `json:"description"`
+}
+
+type TravelModeConfig struct {
+	Enabled               bool   `json:"enabled"`
+	DefaultView           string `json:"defaultView"`
+	GroupBy               string `json:"groupBy"`
+	ShowMap               bool   `json:"showMap"`
+	LocationPrecision     string `json:"locationPrecision"`
+	ApproximateGridMeters int    `json:"approximateGridMeters"`
+	ShowHighlights        bool   `json:"showHighlights"`
+	HighlightTag          string `json:"highlightTag"`
+	PlaceTagPrefix        string `json:"placeTagPrefix"`
+	DayTagPrefix          string `json:"dayTagPrefix"`
+	ShowLastUpdated       bool   `json:"showLastUpdated"`
 }
 
 type LoadOptions struct {
@@ -108,6 +123,19 @@ func Default() Config {
 			ShowGalleryDescription: false,
 			ShowMetadata: MetadataConfig{
 				Description: false,
+			},
+			TravelMode: TravelModeConfig{
+				Enabled:               true,
+				DefaultView:           "timeline",
+				GroupBy:               "day",
+				ShowMap:               true,
+				LocationPrecision:     "approximate",
+				ApproximateGridMeters: 5000,
+				ShowHighlights:        true,
+				HighlightTag:          "#highlight",
+				PlaceTagPrefix:        "#place:",
+				DayTagPrefix:          "#day:",
+				ShowLastUpdated:       true,
 			},
 		},
 		LightGallery: json.RawMessage(`{
@@ -183,6 +211,22 @@ func (c Config) Validate() error {
 	}
 	if c.IPP.CustomInvalidResponse.RedirectURL != "" && c.IPP.CustomInvalidResponse.StatusCode != 0 {
 		return errors.New("customInvalidResponse cannot use redirect and status code together")
+	}
+	switch c.IPP.TravelMode.DefaultView {
+	case "timeline", "gallery":
+	default:
+		return fmt.Errorf("invalid travelMode.defaultView %q", c.IPP.TravelMode.DefaultView)
+	}
+	if c.IPP.TravelMode.GroupBy != "day" {
+		return fmt.Errorf("invalid travelMode.groupBy %q", c.IPP.TravelMode.GroupBy)
+	}
+	switch c.IPP.TravelMode.LocationPrecision {
+	case "none", "approximate", "exact":
+	default:
+		return fmt.Errorf("invalid travelMode.locationPrecision %q", c.IPP.TravelMode.LocationPrecision)
+	}
+	if c.IPP.TravelMode.ApproximateGridMeters <= 0 {
+		return fmt.Errorf("invalid travelMode.approximateGridMeters %d", c.IPP.TravelMode.ApproximateGridMeters)
 	}
 	return nil
 }

@@ -21,6 +21,7 @@ export function initGallery () {
 
   setupToolbar(state)
   initLightbox(state)
+  bindTravelOpeners(state)
 
   let resizeFrame
   const resizeObserver = new ResizeObserver(() => {
@@ -38,4 +39,15 @@ export function initGallery () {
   } else if (params.openItem && params.openItem > 0 && params.openItem <= state.items.length) {
     openLightbox(state, params.openItem - 1)
   }
+}
+
+function bindTravelOpeners (state) {
+  const buttons = document.querySelectorAll('[data-open-asset]')
+  buttons.forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.getAttribute('data-open-asset')
+      const idx = state.items.findIndex(it => it.id === id)
+      if (idx >= 0) openLightbox(state, idx)
+    })
+  })
 }

@@ -16,7 +16,20 @@
     "showMetadata": {
       "description": false
     },
-    "customInvalidResponse": false
+    "customInvalidResponse": false,
+    "travelMode": {
+      "enabled": true,
+      "defaultView": "timeline",
+      "groupBy": "day",
+      "showMap": true,
+      "locationPrecision": "approximate",
+      "approximateGridMeters": 5000,
+      "showHighlights": true,
+      "highlightTag": "#highlight",
+      "placeTagPrefix": "#place:",
+      "dayTagPrefix": "#day:",
+      "showLastUpdated": true
+    }
   },
   "lightGallery": {
     "controls": true,

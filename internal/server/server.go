@@ -226,6 +226,12 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.logger.Info("serving link", "key", key)
+	if s.config.IPP.TravelMode.Enabled && link.Album != nil && len(link.Assets) > 1 {
+		if err := s.renderer.Travel(w, r, &link, render.CanDownload(s.config, &link)); err != nil {
+			s.logger.Error("render travel page", "error", err)
+		}
+		return
+	}
 	if err := s.renderer.Gallery(w, r, &link, 0, render.CanDownload(s.config, &link)); err != nil {
 		s.logger.Error("render gallery", "error", err)
 	}

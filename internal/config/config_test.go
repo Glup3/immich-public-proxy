@@ -21,6 +21,9 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 	if cfg.IPP.ResponseHeaders["Cache-Control"] == "" {
 		t.Fatal("expected default response headers")
 	}
+	if !cfg.IPP.TravelMode.Enabled || cfg.IPP.TravelMode.DefaultView != "timeline" {
+		t.Fatalf("unexpected travel defaults: %#v", cfg.IPP.TravelMode)
+	}
 }
 
 func TestLoadInlineConfigMergesDefaults(t *testing.T) {
@@ -84,5 +87,13 @@ func TestLoadLegacyInvalidResponseConfig(t *testing.T) {
 	}
 	if cfg.IPP.CustomInvalidResponse.RedirectURL != "https://example.com" {
 		t.Fatalf("unexpected redirect url: %#v", cfg.IPP.CustomInvalidResponse)
+	}
+}
+
+func TestTravelModeValidationRejectsBadValues(t *testing.T) {
+	cfg := Default()
+	cfg.IPP.TravelMode.DefaultView = "cards"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid defaultView")
 	}
 }

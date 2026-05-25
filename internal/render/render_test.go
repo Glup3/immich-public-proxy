@@ -162,6 +162,74 @@ func TestGalleryRendersPhotoSwipeInitPayload(t *testing.T) {
 	}
 }
 
+func TestTravelRendersTimelineAndMap(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Default()
+	renderer, err := New(cfg, "https://example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lat1, lng1 := 48.2082, 16.3738
+	lat2, lng2 := 35.0116, 135.7681
+	share := &immich.SharedLink{
+		Key: "share-key",
+		Album: &immich.SharedLinkAlbum{
+			AlbumName:   "Japan Spring",
+			Description: "Intro text\n\n#status\nIn Kyoto\n\n#trip\nSpring 2026",
+		},
+		Assets: []immich.Asset{
+			{
+				ID:               "a",
+				Type:             immich.AssetTypeImage,
+				OriginalFileName: "a.jpg",
+				OriginalMimeType: "image/jpeg",
+				LocalDateTime:    "2024-02-01T09:00:00+01:00",
+				Latitude:         &lat1,
+				Longitude:        &lng1,
+				ExifInfo: &immich.ExifInfo{
+					Description:     "Sunrise ferry\n#highlight\n#place: Vienna",
+					ExifImageWidth:  1200,
+					ExifImageHeight: 800,
+				},
+			},
+			{
+				ID:               "b",
+				Type:             immich.AssetTypeVideo,
+				OriginalFileName: "b.mp4",
+				OriginalMimeType: "video/mp4",
+				LocalDateTime:    "2024-02-02T09:00:00+09:00",
+				Latitude:         &lat2,
+				Longitude:        &lng2,
+				ExifInfo:         &immich.ExifInfo{Description: "#day: Kyoto Day\nTemple walk"},
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/share/share-key", nil)
+	if err := renderer.Travel(rec, req, share, true); err != nil {
+		t.Fatal(err)
+	}
+	body := rec.Body.String()
+	for _, expected := range []string{"Japan Spring", "Last updated", "Highlights", "Route", "Approximate locations only.", "Kyoto Day", `id="gallery"`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected body to contain %q", expected)
+		}
+	}
+	initJSON := extractScriptJSON(t, body, "ipp-init")
+	var payload struct {
+		PageType string        `json:"pageType"`
+		Items    []GalleryItem `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(initJSON), &payload); err != nil {
+		t.Fatalf("decode init payload: %v", err)
+	}
+	if payload.PageType != "travel" || len(payload.Items) != 2 {
+		t.Fatalf("unexpected travel init payload: %#v", payload)
+	}
+}
+
 func extractScriptJSON(t *testing.T, body string, id string) string {
 	t.Helper()
 

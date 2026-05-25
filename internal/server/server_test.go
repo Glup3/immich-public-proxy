@@ -70,6 +70,26 @@ func TestGalleryRendersMetadataAndDownloadLink(t *testing.T) {
 	}
 }
 
+func TestTravelModeRendersStoryPageForAlbumShare(t *testing.T) {
+	cfg := config.Default()
+	cfg.IPP.AllowDownloadAll = config.DownloadAllAlways
+	upstream := albumSharedLinkServer(t)
+	defer upstream.Close()
+
+	app := newTestApp(t, cfg, upstream)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/share/share-key", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, expected := range []string{"Approximate locations only.", "Updates", "All photos", "Download all"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected body to contain %q", expected)
+		}
+	}
+}
+
 func TestAssetProxyForwardsWhitelistedHeaders(t *testing.T) {
 	upstream := sharedLinkServer(t, 1)
 	defer upstream.Close()
@@ -249,6 +269,68 @@ func sharedLinkServer(t *testing.T, assetCount int) *httptest.Server {
 		case strings.HasSuffix(r.URL.Path, "/original"):
 			w.Header().Set("Content-Type", "image/jpeg")
 			_, _ = w.Write([]byte("original-bytes"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func albumSharedLinkServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	lat1, lng1 := 48.2082, 16.3738
+	lat2, lng2 := 35.0116, 135.7681
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/shared-links/me":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(immich.SharedLink{
+				Key:           "share-key",
+				Type:          immich.AlbumTypeAlbum,
+				AllowDownload: true,
+				Album: &immich.SharedLinkAlbum{
+					ID:          "album-id",
+					AlbumName:   "Trip title",
+					Description: "Album intro\n\n#status\nLive from Kyoto",
+				},
+			})
+		case r.URL.Path == "/api/albums/album-id":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(immich.Album{
+				ID: "album-id",
+				Assets: []immich.Asset{
+					{
+						ID:               testAssetID,
+						Type:             immich.AssetTypeImage,
+						OriginalFileName: "photo.jpg",
+						OriginalMimeType: "image/jpeg",
+						LocalDateTime:    "2024-02-01T09:00:00+01:00",
+						FileCreatedAt:    "2024-02-01T08:00:00Z",
+						Latitude:         &lat1,
+						Longitude:        &lng1,
+						ExifInfo:         &immich.ExifInfo{Description: "Sunrise\n#highlight\n#place: Vienna"},
+					},
+					{
+						ID:               "123e4567-e89b-12d3-a456-426614174001",
+						Type:             immich.AssetTypeVideo,
+						OriginalFileName: "video.mp4",
+						OriginalMimeType: "video/mp4",
+						LocalDateTime:    "2024-02-02T09:00:00+09:00",
+						FileCreatedAt:    "2024-02-02T00:00:00Z",
+						Latitude:         &lat2,
+						Longitude:        &lng2,
+						ExifInfo:         &immich.ExifInfo{Description: "#day: Kyoto Day\nTemple walk"},
+					},
+				},
+			})
+		case strings.HasSuffix(r.URL.Path, "/thumbnail"):
+			w.Header().Set("Content-Type", "image/jpeg")
+			_, _ = w.Write([]byte("asset-bytes"))
+		case strings.HasSuffix(r.URL.Path, "/original"):
+			w.Header().Set("Content-Type", "image/jpeg")
+			_, _ = w.Write([]byte("original-bytes"))
+		case strings.HasSuffix(r.URL.Path, "/video/playback"):
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write([]byte("video-bytes"))
 		default:
 			http.NotFound(w, r)
 		}
