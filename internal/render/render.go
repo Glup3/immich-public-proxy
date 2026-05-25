@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
-	"github.com/a-h/templ"
 	"github.com/glup3/immich-public-proxy/internal/config"
 	"github.com/glup3/immich-public-proxy/internal/immich"
 )
@@ -34,45 +33,35 @@ type PasswordPageData struct {
 }
 
 type GalleryItem struct {
-	AssetID      string `json:"assetId"`
-	Description  string `json:"description"`
-	DownloadName string `json:"downloadName"`
-	DownloadURL  string `json:"downloadUrl"`
-	HTML         string `json:"html"`
-	IsVideo      bool   `json:"isVideo"`
-	ThumbnailURL string `json:"thumbnailUrl"`
-	PreviewURL   string `json:"previewUrl"`
-	VideoJSON    string `json:"video"`
+	ID               string           `json:"id"`
+	Type             immich.AssetType `json:"type"`
+	PreviewURL       string           `json:"previewUrl"`
+	ThumbnailURL     string           `json:"thumbnailUrl"`
+	DownloadURL      string           `json:"downloadUrl,omitempty"`
+	VideoData        string           `json:"videoData,omitempty"`
+	Description      string           `json:"description,omitempty"`
+	DownloadFilename string           `json:"downloadFilename"`
+	Width            int              `json:"width,omitempty"`
+	Height           int              `json:"height,omitempty"`
+	Thumbhash        string           `json:"thumbhash,omitempty"`
+	FileCreatedAt    string           `json:"fileCreatedAt,omitempty"`
 }
 
-type GalleryGroup struct {
-	Title string
-	Items []GalleryItem
-}
-
-type MapPoint struct {
-	AssetID      string  `json:"assetId"`
-	Index        int     `json:"index"`
-	Latitude     float64 `json:"latitude"`
-	Longitude    float64 `json:"longitude"`
-	ThumbnailURL string  `json:"thumbnailUrl"`
-	PreviewURL   string  `json:"previewUrl"`
+type LightboxConfig struct {
+	ShowArrows   bool `json:"showArrows"`
+	ShowDownload bool `json:"showDownload"`
+	MobileArrows bool `json:"mobileArrows"`
 }
 
 type GalleryPageData struct {
-	Items         []GalleryItem
-	Groups        []GalleryGroup
-	ItemsJSON     string
-	MapPointsJSON string
-	OpenItem      int
+	InitJSON      string
+	InitData      any
 	Title         string
 	Description   string
 	PublicBaseURL string
 	Path          string
 	ShowDownload  bool
 	ShowTitle     bool
-	ShowMap       bool
-	HasMore       bool
 }
 
 func New(cfg config.Config, publicBaseURL string) (*Renderer, error) {
@@ -99,50 +88,61 @@ func (r *Renderer) Gallery(w http.ResponseWriter, req *http.Request, share *immi
 	for _, asset := range share.Assets {
 		items = append(items, r.galleryItem(share, asset))
 	}
-	groups := buildGalleryGroups(share.Assets, items)
-	mapPoints := buildMapPoints(share.Assets, items)
-
-	itemsJSON, err := json.Marshal(struct {
-		LGConfig json.RawMessage `json:"lgConfig"`
-		Items    []GalleryItem   `json:"items"`
-		OpenItem *int            `json:"openItem"`
-	}{
-		LGConfig: r.config.LightGallery,
-		Items:    items,
-		OpenItem: optionalOpenItem(openItem),
-	})
-	if err != nil {
-		return fmt.Errorf("marshal gallery payload: %w", err)
-	}
-	mapPointsJSON, err := json.Marshal(mapPoints)
-	if err != nil {
-		return fmt.Errorf("marshal map points: %w", err)
-	}
 
 	description := ""
 	if r.config.IPP.ShowGalleryDescription {
 		description = Description(share)
 	}
+
+	initJSON, err := json.Marshal(struct {
+		Items          []GalleryItem  `json:"items"`
+		OpenItem       *int           `json:"openItem,omitempty"`
+		LightboxConfig LightboxConfig `json:"lightboxConfig"`
+		GroupByDate    bool           `json:"groupByDate"`
+	}{
+		Items:    items,
+		OpenItem: optionalOpenItem(openItem),
+		LightboxConfig: LightboxConfig{
+			ShowArrows:   true,
+			ShowDownload: showDownload,
+			MobileArrows: false,
+		},
+		GroupByDate: false,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal gallery payload: %w", err)
+	}
+
 	data := GalleryPageData{
-		Items:         items,
-		Groups:        groups,
-		ItemsJSON:     string(itemsJSON),
-		MapPointsJSON: string(mapPointsJSON),
-		OpenItem:      openItem,
+		InitJSON: string(initJSON),
+		InitData: struct {
+			Items          []GalleryItem  `json:"items"`
+			OpenItem       *int           `json:"openItem,omitempty"`
+			LightboxConfig LightboxConfig `json:"lightboxConfig"`
+			GroupByDate    bool           `json:"groupByDate"`
+		}{
+			Items:    items,
+			OpenItem: optionalOpenItem(openItem),
+			LightboxConfig: LightboxConfig{
+				ShowArrows:   true,
+				ShowDownload: showDownload,
+				MobileArrows: false,
+			},
+			GroupByDate: false,
+		},
 		Title:         Title(share),
 		Description:   description,
 		PublicBaseURL: r.resolvePublicBaseURL(req),
 		Path:          "/share/" + share.Key,
 		ShowDownload:  showDownload,
 		ShowTitle:     r.config.IPP.ShowGalleryTitle,
-		ShowMap:       len(mapPoints) > 0,
-		HasMore:       false,
 	}
 	return galleryPage(data).Render(req.Context(), w)
 }
 
 func (r *Renderer) galleryItem(share *immich.SharedLink, asset immich.Asset) GalleryItem {
-	var videoJSON, downloadURL string
+	var videoData string
+	downloadURL := ""
 	if asset.Type == immich.AssetTypeVideo {
 		mimeType := asset.OriginalMimeType
 		if mimeType == "" {
@@ -161,38 +161,34 @@ func (r *Renderer) galleryItem(share *immich.SharedLink, asset immich.Asset) Gal
 				"controls":    "controls",
 			},
 		})
-		videoJSON = string(video)
+		videoData = string(video)
 		downloadURL = videoURL(share.Key, asset.ID)
 	}
-	if r.config.IPP.DownloadOriginalPhoto {
+	if asset.Type == immich.AssetTypeImage && r.config.IPP.DownloadOriginalPhoto {
 		downloadURL = photoURL(share.Key, asset.ID, immich.ImageSizeOriginal)
 	}
 
-	thumbnailURL := photoURL(share.Key, asset.ID, immich.ImageSizeThumbnail)
-	previewURL := photoURL(share.Key, asset.ID, previewImageSize(asset))
 	description := ""
 	if r.config.IPP.ShowMetadata.Description && asset.ExifInfo != nil {
-		description = asset.ExifInfo.Description
+		description = html.EscapeString(asset.ExifInfo.Description)
 	}
 
-	item := GalleryItem{
-		AssetID:      asset.ID,
-		Description:  description,
-		DownloadName: Filename(r.config, asset),
-		DownloadURL:  downloadURL,
-		IsVideo:      videoJSON != "",
-		ThumbnailURL: thumbnailURL,
-		PreviewURL:   previewURL,
-		VideoJSON:    videoJSON,
-	}
+	width, height := assetDimensions(asset)
 
-	renderedHTML, err := templ.ToGoHTML(context.Background(), galleryItemMarkup(item))
-	if err != nil {
-		panic(fmt.Errorf("render gallery item %s: %w", asset.ID, err))
+	return GalleryItem{
+		ID:               asset.ID,
+		Type:             asset.Type,
+		PreviewURL:       photoURL(share.Key, asset.ID, previewImageSize(asset)),
+		ThumbnailURL:     photoURL(share.Key, asset.ID, immich.ImageSizeThumbnail),
+		DownloadURL:      downloadURL,
+		VideoData:        videoData,
+		Description:      description,
+		DownloadFilename: Filename(r.config, asset),
+		Width:            width,
+		Height:           height,
+		Thumbhash:        asset.Thumbhash,
+		FileCreatedAt:    asset.FileCreatedAt,
 	}
-	item.HTML = string(renderedHTML)
-
-	return item
 }
 
 func Title(share *immich.SharedLink) string {
@@ -210,6 +206,21 @@ func Description(share *immich.SharedLink) string {
 		return share.Album.Description
 	}
 	return ""
+}
+
+func extractFirstPreviewURL(initJSON string) string {
+	var payload struct {
+		Items []struct {
+			PreviewURL string `json:"previewUrl"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(initJSON), &payload); err != nil {
+		return ""
+	}
+	if len(payload.Items) == 0 {
+		return ""
+	}
+	return payload.Items[0].PreviewURL
 }
 
 func Filename(cfg config.Config, asset immich.Asset) string {
@@ -253,106 +264,21 @@ func optionalOpenItem(openItem int) *int {
 	return nil
 }
 
-func buildGalleryGroups(assets []immich.Asset, items []GalleryItem) []GalleryGroup {
-	groups := make([]GalleryGroup, 0)
-	groupIndex := make(map[string]int)
-	undatedItems := make([]GalleryItem, 0)
-
-	for i, asset := range assets {
-		item := items[i]
-		label, _, ok := groupDate(asset)
-		if !ok {
-			undatedItems = append(undatedItems, item)
-			continue
-		}
-		idx, exists := groupIndex[label]
-		if !exists {
-			idx = len(groups)
-			groupIndex[label] = idx
-			groups = append(groups, GalleryGroup{Title: label})
-		}
-		groups[idx].Items = append(groups[idx].Items, item)
+func assetDimensions(asset immich.Asset) (int, int) {
+	if asset.ExifInfo == nil {
+		return 0, 0
 	}
-
-	if len(undatedItems) > 0 {
-		groups = append(groups, GalleryGroup{
-			Title: "Undated",
-			Items: undatedItems,
-		})
+	width := asset.ExifInfo.ExifImageWidth
+	height := asset.ExifInfo.ExifImageHeight
+	if width == 0 || height == 0 {
+		return width, height
 	}
-
-	return groups
-}
-
-func buildMapPoints(assets []immich.Asset, items []GalleryItem) []MapPoint {
-	points := make([]MapPoint, 0)
-	for i, asset := range assets {
-		lat, lng, ok := assetCoordinates(asset)
-		if !ok {
-			continue
-		}
-		points = append(points, MapPoint{
-			AssetID:      asset.ID,
-			Index:        i,
-			Latitude:     lat,
-			Longitude:    lng,
-			ThumbnailURL: items[i].ThumbnailURL,
-			PreviewURL:   items[i].PreviewURL,
-		})
+	switch asset.ExifInfo.Orientation {
+	case "5", "6", "7", "8":
+		return height, width
+	default:
+		return width, height
 	}
-	return points
-}
-
-func assetCoordinates(asset immich.Asset) (latitude float64, longitude float64, ok bool) {
-	if asset.ExifInfo != nil && asset.ExifInfo.Latitude != nil && asset.ExifInfo.Longitude != nil {
-		return *asset.ExifInfo.Latitude, *asset.ExifInfo.Longitude, true
-	}
-	if asset.Latitude != nil && asset.Longitude != nil {
-		return *asset.Latitude, *asset.Longitude, true
-	}
-	return 0, 0, false
-}
-
-func groupDate(asset immich.Asset) (label string, sortKey string, ok bool) {
-	candidates := []string{}
-	if asset.ExifInfo != nil {
-		candidates = append(candidates, asset.ExifInfo.LocalDateTime, asset.ExifInfo.DateTimeOriginal)
-	}
-	candidates = append(candidates, asset.LocalDateTime, asset.FileCreatedAt)
-
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
-		}
-		t, ok := parseGroupTime(candidate)
-		if !ok {
-			continue
-		}
-		day := t.Format("2006-01-02")
-		return day, day, true
-	}
-
-	return "", "", false
-}
-
-func parseGroupTime(value string) (time.Time, bool) {
-	layouts := []string{
-		time.RFC3339Nano,
-		time.RFC3339,
-		"2006-01-02T15:04:05.000",
-		"2006-01-02T15:04:05",
-		"2006-01-02 15:04:05",
-		"2006-01-02",
-	}
-
-	for _, layout := range layouts {
-		t, err := time.Parse(layout, value)
-		if err == nil {
-			return t, true
-		}
-	}
-
-	return time.Time{}, false
 }
 
 func (r *Renderer) resolvePublicBaseURL(req *http.Request) string {
